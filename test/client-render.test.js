@@ -557,6 +557,24 @@ function createClient(factory, mini, payload, extra = {}) {
   return { ctx, calls, menus, slots, toasts }
 }
 
+test('the loading state renders structured, staggered row skeletons', async () => {
+  const { factory, mini } = await loadModule()
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const client = createClient(factory, mini, () => gate)
+  const section = client.slots.find((entry) => entry.definition.name === 'settings.section')
+  const tree = await mini.settle(section.component, 1)
+
+  assert.equal(elementsByClass(tree, 'dsh-trash__skeleton').length, 3)
+  assert.equal(elementsByClass(tree, 'dsh-trash__skeletonLine').length, 9)
+  assert.equal(elementsByClass(tree, 'dsh-trash__skeletonSearch').length, 1)
+  assert.ok(textOf(tree).includes('正在加载…'))
+  release({ status: 200, body: statePayload() })
+  await mini.settle(section.component)
+})
+
 test('the trash page renders rows, badges, and row actions from /state', async () => {
   const { factory, mini } = await loadModule()
   const client = createClient(factory, mini, statePayload())
@@ -1307,6 +1325,8 @@ test('the settings page stylesheet uses theme tokens rather than literal colours
   assert.ok(css.includes('var(--dsw-alias-'))
   assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/)
   assert.doesNotMatch(css, /\b(rgb|rgba|hsl|hsla)\(/)
+  assert.match(css, /@keyframes dsh-trash-shimmer/)
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/)
 })
 
 test('the page exposes accessible names for search, filters, and row actions', async () => {

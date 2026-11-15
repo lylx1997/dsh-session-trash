@@ -1015,8 +1015,21 @@ window.__ModuleLoader__.load({
       .dsh-trash__banner--warn { border-color: var(--dsw-alias-state-warn-primary); color: var(--dsw-alias-state-warn-primary); }
       .dsh-trash__banner--info { color: var(--dsw-alias-label-secondary); }
       .dsh-trash__bannerText { flex: 1 1 auto; min-width: 0; }
-      .dsh-trash__skeletons { display: flex; flex-direction: column; gap: 8px; padding: 14px; }
-      .dsh-trash__skeleton { height: 64px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-skeleton); }
+      .dsh-trash__skeletons { display: flex; flex-direction: column; gap: 10px; padding: 14px; animation: dsh-trash-skeleton-in 180ms ease-out both; }
+      .dsh-trash__skeletonToolbar { display: flex; align-items: center; gap: 8px; padding: 0 0 2px; }
+      .dsh-trash__skeletonSearch { flex: 1 1 auto; height: 32px; border-radius: 999px; background: var(--dsw-alias-bg-skeleton); }
+      .dsh-trash__skeletonFilter { flex: 0 0 auto; width: 96px; height: 28px; border-radius: 999px; background: var(--dsw-alias-bg-skeleton); }
+      .dsh-trash__skeleton { position: relative; overflow: hidden; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-height: 72px; padding: 12px 14px; border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-1); }
+      .dsh-trash__skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent) 50%, transparent 80%); animation: dsh-trash-shimmer 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite; animation-delay: var(--dsh-trash-skeleton-delay, 0ms); pointer-events: none; }
+      .dsh-trash__skeletonMain { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-width: 0; padding-top: 1px; }
+      .dsh-trash__skeletonLine { display: block; height: 9px; border-radius: 999px; background: var(--dsw-alias-bg-skeleton); }
+      .dsh-trash__skeletonLine--title { width: 38%; height: 13px; }
+      .dsh-trash__skeletonLine--id { width: 62%; }
+      .dsh-trash__skeletonLine--meta { width: 34%; height: 8px; }
+      .dsh-trash__skeletonAction { flex: 0 0 auto; width: 58px; height: 28px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-skeleton); }
+      @keyframes dsh-trash-shimmer { to { transform: translateX(100%); } }
+      @keyframes dsh-trash-skeleton-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+      @media (prefers-reduced-motion: reduce) { .dsh-trash__skeletons, .dsh-trash__skeleton::after { animation: none; } }
       .dsh-trash__list { list-style: none; margin: 0; padding: 0; }
       .dsh-trash__pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--dsw-alias-border-l1); }
       .dsh-trash__pageInfo { font-size: 12.5px; line-height: 1.5; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
@@ -3009,7 +3022,31 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'dsh-trash__skeletons' },
             h('span', { className: 'dsh-trash__srOnly', role: 'status' }, t('loading')),
-            [0, 1, 2, 3].map((index) => h('div', { className: 'dsh-trash__skeleton', key: index, 'aria-hidden': true })),
+            h(
+              'div',
+              { className: 'dsh-trash__skeletonToolbar', 'aria-hidden': true },
+              h('span', { className: 'dsh-trash__skeletonSearch' }),
+              h('span', { className: 'dsh-trash__skeletonFilter' }),
+            ),
+            [0, 1, 2].map((index) =>
+              h(
+                'div',
+                {
+                  className: 'dsh-trash__skeleton',
+                  key: index,
+                  'aria-hidden': true,
+                  style: { '--dsh-trash-skeleton-delay': `${index * 140}ms` },
+                },
+                h(
+                  'div',
+                  { className: 'dsh-trash__skeletonMain' },
+                  h('span', { className: 'dsh-trash__skeletonLine dsh-trash__skeletonLine--title' }),
+                  h('span', { className: 'dsh-trash__skeletonLine dsh-trash__skeletonLine--id' }),
+                  h('span', { className: 'dsh-trash__skeletonLine dsh-trash__skeletonLine--meta' }),
+                ),
+                h('span', { className: 'dsh-trash__skeletonAction' }),
+              ),
+            ),
           )
         } else if (entries.length === 0) {
           panelBody = h(

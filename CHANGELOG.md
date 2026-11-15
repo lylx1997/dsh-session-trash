@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-15
+
+### Changed
+
+- 回收站设置页的加载态改成与真实行结构对应的骨架：搜索/筛选占位、标题/ID/元信息行和右侧操作位，使用 140ms 逐行错峰的低对比 shimmer，并遵循 `prefers-reduced-motion`。
+
+### Tests
+
+- 覆盖加载态的结构化骨架、隐藏的装饰层、可访问的状态文本，以及 shimmer/reduced-motion 样式。
+
 ## [0.8.1] - 2026-11-15
 
 ### Changed
@@ -204,6 +214,7 @@
 
 - 回收站工具栏的「永久删除全部」与二次确认；`missing` 记录只移出索引，不删除会话文件。
 
+[0.8.2]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.6.9...v0.7.0

@@ -351,6 +351,8 @@ const REVEAL_ROUTE = '/plugins/dsh-session-trash/api/reveal'
 const FORGET_ROUTE = '/plugins/dsh-session-trash/api/forget'
 const SWEEP_ROUTE = '/plugins/dsh-session-trash/api/sweep'
 const ORPHANS_ROUTE = '/plugins/dsh-session-trash/api/orphans/forget'
+const RECLAIM_PREVIEW_ROUTE = '/plugins/dsh-session-trash/api/reclaim/preview'
+const RECLAIM_ROUTE = '/plugins/dsh-session-trash/api/reclaim'
 
 const DAY = 86_400_000
 
@@ -668,6 +670,43 @@ test('the storage line reports incomplete attachment stats without a guessed num
   const storageText = textContent(elementByClass(tree, 'dsh-trash__storage'))
   assert.ok(storageText.includes('附件 6 MB（附件统计不完整）'))
   assert.equal(storageText.includes('无引用'), false)
+})
+
+test('the storage line opens the reclaim dialog when an eligible orphan total exists', async () => {
+  const { factory, mini } = await loadModule()
+  const payload = statePayload()
+  payload.storage = {
+    measuredAt: Date.now(),
+    totalBytes: 9 * 1024 * 1024,
+    sessionLogs: { count: 1, bytes: 1024 * 1024 },
+    trashLogs: { count: 1, bytes: 1024 },
+    attachments: {
+      files: 2,
+      bytes: 6 * 1024 * 1024,
+      complete: true,
+      referencedBytes: 5 * 1024 * 1024,
+      orphanBytes: 1024 * 1024,
+      unclassifiedBytes: 0,
+      scan: { status: 'complete', at: Date.now(), scannedFiles: 2, failedFiles: 0, failedDirs: 0, tornFiles: 0 },
+    },
+    attachmentCache: { files: 0, bytes: 0 },
+    projectionCache: { records: 0, bytes: 0, sweepableRecords: 0, sweepableBytes: 0 },
+  }
+  const client = createClient(factory, mini, payload)
+  const section = client.slots.find((entry) => entry.definition.name === 'settings.section')
+  const tree = await mini.settle(section.component)
+  const open = buttonByText(tree, '清理无引用附件…')
+  assert.ok(open !== undefined)
+  open.props.onClick()
+  const afterClick = await mini.settle(section.component)
+  let reclaim
+  walk(afterClick, (element) => {
+    if (reclaim !== undefined) return
+    if (typeof element.type === 'function' && element.type.name === 'ReclaimDialog') reclaim = element
+  })
+  assert.ok(reclaim !== undefined)
+  assert.equal(typeof reclaim.props.sendMutation, 'function')
+  assert.equal(typeof reclaim.props.onDone, 'function')
 })
 
 test('a row shows the recorded workspace title and keeps the full path as the tooltip', async () => {

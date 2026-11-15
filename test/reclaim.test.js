@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { createReclaimService, PLAN_TTL_MS } from '../lib/reclaim.js'
+import { createReclaimService, PLAN_TTL_MS, RECLAIM_CONFIRMATION } from '../lib/reclaim.js'
 import { createLogger, createTempDir } from './helpers.js'
 
 /**
@@ -20,9 +20,11 @@ async function writeBytes(file, bytes) {
  *   entries?: any[],
  *   snapshots?: any[],
  *   scan?: object,
+ *   fingerprint?: string | (() => string | null),
  *   clock?: () => number,
  *   protected?: boolean,
  *   recover?: () => Promise<any>,
+ *   batchSize?: number,
  * }} [options] harness overrides.
  * @returns {Promise<object>} the service and fixtures.
  */
@@ -51,6 +53,7 @@ async function createHarness(options = {}) {
       return options.snapshots ?? []
     },
   }
+  let fingerprintCalls = 0
   const references = {
     async scan(scanOptions) {
       scanned.push(scanOptions)
@@ -68,6 +71,11 @@ async function createHarness(options = {}) {
         ...(options.scan ?? {}),
       }
     },
+    async fingerprint() {
+      const value = options.fingerprint
+      const current = typeof value === 'function' ? value(fingerprintCalls++) : value
+      return current === undefined ? (options.scan?.fingerprint ?? 'sha256:test') : current
+    },
   }
   const service = createReclaimService({
     ctx: { sessionPersistence: persistence, sessions: { list: () => [] } },
@@ -77,8 +85,17 @@ async function createHarness(options = {}) {
     paths: { home, root: trashRoot },
     logger,
     clock: options.clock ?? (() => Date.now()),
+    batchSize: options.batchSize,
   })
-  return { home, trashRoot, service, entries, scanned, logger }
+  return {
+    home,
+    trashRoot,
+    service,
+    entries,
+    scanned,
+    logger,
+    auditPath: path.join(trashRoot, 'reclaim', 'reclaim-log.jsonl'),
+  }
 }
 
 /**
@@ -222,6 +239,238 @@ test('preview covers persisted and trashed log roots', async () => {
   assert.equal(result.eligible, true)
   assert.equal(result.plan.totals.hashes, 1)
   await fs.rm(home, { recursive: true, force: true })
+})
+
+test('execute deletes only unreferenced, old objects and writes the audit log', async () => {
+  const referenced = 'a'.repeat(64)
+  const orphan = 'b'.repeat(64)
+  const young = 'c'.repeat(64)
+  const old = new Date(Date.now() - 25 * 86_400_000)
+  const harness = await createHarness({ scan: { refs: new Set([referenced]) } })
+  await writeObject(harness.home, referenced, 100, old)
+  await writeObject(harness.home, orphan, 50, old)
+  await writeObject(harness.home, young, 30, new Date())
+
+  const preview = await harness.service.preview()
+  const result = await harness.service.execute({
+    planId: preview.plan.id,
+    confirmation: RECLAIM_CONFIRMATION,
+  })
+
+  assert.deepEqual(result.deleted, { hashes: 1, bytes: 50 })
+  assert.equal(result.stale, false)
+  assert.equal(await harness.service.getPlan(), null)
+  await assert.rejects(fs.stat(path.join(harness.home, 'attachments', 'v1', 'objects', orphan.slice(0, 2), orphan)))
+  await fs.stat(path.join(harness.home, 'attachments', 'v1', 'objects', referenced.slice(0, 2), referenced))
+  const audit = await fs.readFile(harness.auditPath, 'utf8')
+  assert.ok(audit.includes('"action":"plan"'))
+  assert.ok(audit.includes('"action":"execute-start"'))
+  assert.ok(audit.includes('"action":"batch"'))
+  assert.ok(audit.includes('"action":"execute-end"'))
+  await fs.rm(harness.home, { recursive: true, force: true })
+})
+
+test('a fingerprint change between batches stops the remaining deletions', async () => {
+  const first = 'd'.repeat(64)
+  const second = 'e'.repeat(64)
+  const old = new Date(Date.now() - 25 * 86_400_000)
+  const harness = await createHarness({
+    batchSize: 1,
+    fingerprint: (call) => (call === 0 ? 'sha256:test' : 'sha256:changed'),
+  })
+  await writeObject(harness.home, first, 10, old)
+  await writeObject(harness.home, second, 20, old)
+  const preview = await harness.service.preview()
+
+  const result = await harness.service.execute({
+    planId: preview.plan.id,
+    confirmation: RECLAIM_CONFIRMATION,
+  })
+  assert.equal(result.stale, true)
+  assert.equal(result.deleted.hashes, 1)
+  await assert.rejects(fs.stat(path.join(harness.home, 'attachments', 'v1', 'objects', first.slice(0, 2), first)))
+  await fs.stat(path.join(harness.home, 'attachments', 'v1', 'objects', second.slice(0, 2), second))
+  await fs.rm(harness.home, { recursive: true, force: true })
+})
+
+test('a changed plan fingerprint is rejected before any batch starts', async () => {
+  const orphan = 'e'.repeat(64)
+  const old = new Date(Date.now() - 25 * 86_400_000)
+  const harness = await createHarness()
+  await writeObject(harness.home, orphan, 10, old)
+  const preview = await harness.service.preview()
+
+  harness.service = createReclaimService({
+    ctx: {
+      sessionPersistence: { async flush() {}, async list() { return [] } },
+      sessions: { list: () => [] },
+    },
+    store: {
+      root: harness.trashRoot,
+      entries: () => [],
+      isProtected: () => false,
+      withLock: async (operation) => operation(),
+      memberPath: () => '',
+    },
+    references: {
+      async scan() {
+        return {
+          status: 'complete',
+          refs: new Set(),
+          files: [],
+          fingerprint: 'sha256:different',
+          scannedFiles: 0,
+          failedFiles: 0,
+          failedDirs: 0,
+          tornFiles: 0,
+          at: 1,
+          files2: [],
+        }
+      },
+      async fingerprint() {
+        return 'sha256:different'
+      },
+    },
+    paths: { home: harness.home, root: harness.trashRoot },
+    logger: harness.logger,
+  })
+
+  await assert.rejects(
+    harness.service.execute({ planId: preview.plan.id, confirmation: RECLAIM_CONFIRMATION }),
+    (error) => error?.code === 'PLAN_STALE',
+  )
+  await fs.stat(path.join(harness.home, 'attachments', 'v1', 'objects', orphan.slice(0, 2), orphan))
+  await fs.rm(harness.home, { recursive: true, force: true })
+})
+
+test('an expired plan is rejected and a changed or vanished candidate is skipped', async () => {
+  let now = Date.now()
+  const expiredHash = '7'.repeat(64)
+  const missingHash = '6'.repeat(64)
+  const changedHash = '5'.repeat(64)
+  const old = new Date(now - 25 * 86_400_000)
+  const harness = await createHarness({ clock: () => now })
+  await writeObject(harness.home, expiredHash, 10, old)
+  const expiredPlan = await harness.service.preview()
+  now += PLAN_TTL_MS + 1
+  await assert.rejects(
+    harness.service.execute({ planId: expiredPlan.plan.id, confirmation: RECLAIM_CONFIRMATION }),
+    (error) => error?.code === 'PLAN_EXPIRED',
+  )
+
+  now = Date.now()
+  await fs.rm(path.join(harness.home, 'attachments', 'v1', 'objects', expiredHash.slice(0, 2), expiredHash))
+  await writeObject(harness.home, missingHash, 20, old)
+  await writeObject(harness.home, changedHash, 30, old)
+  const plan = await harness.service.preview()
+  await fs.rm(path.join(harness.home, 'attachments', 'v1', 'objects', missingHash.slice(0, 2), missingHash))
+  await fs.utimes(
+    path.join(harness.home, 'attachments', 'v1', 'objects', changedHash.slice(0, 2), changedHash),
+    new Date(),
+    new Date(),
+  )
+  const result = await harness.service.execute({
+    planId: plan.plan.id,
+    confirmation: RECLAIM_CONFIRMATION,
+  })
+  assert.deepEqual(result.deleted, { hashes: 0, bytes: 0 })
+  assert.deepEqual(result.skipped.map((item) => item.reason).sort(), ['changed', 'missing'])
+  await fs.stat(path.join(harness.home, 'attachments', 'v1', 'objects', changedHash.slice(0, 2), changedHash))
+  await fs.rm(harness.home, { recursive: true, force: true })
+})
+
+test('a zero-byte unreferenced object is still a valid candidate', async () => {
+  const hash = '3'.repeat(64)
+  const old = new Date(Date.now() - 25 * 86_400_000)
+  const harness = await createHarness()
+  await writeObject(harness.home, hash, 0, old)
+  const preview = await harness.service.preview()
+  assert.equal(preview.eligible, true)
+  const result = await harness.service.execute({
+    planId: preview.plan.id,
+    confirmation: RECLAIM_CONFIRMATION,
+  })
+  assert.deepEqual(result.deleted, { hashes: 1, bytes: 0 })
+  await assert.rejects(fs.stat(path.join(harness.home, 'attachments', 'v1', 'objects', hash.slice(0, 2), hash)))
+  await fs.rm(harness.home, { recursive: true, force: true })
+})
+
+test('a mismatched plan id is rejected', async () => {
+  const orphan = '4'.repeat(64)
+  const old = new Date(Date.now() - 25 * 86_400_000)
+  const harness = await createHarness()
+  await writeObject(harness.home, orphan, 10, old)
+  await harness.service.preview()
+  await assert.rejects(
+    harness.service.execute({ planId: 'not-the-plan', confirmation: RECLAIM_CONFIRMATION }),
+    (error) => error?.code === 'PLAN_NOT_FOUND',
+  )
+  await fs.rm(harness.home, { recursive: true, force: true })
+})
+
+test('the exact confirmation phrase is required and leaves the plan intact', async () => {
+  const orphan = 'f'.repeat(64)
+  const old = new Date(Date.now() - 25 * 86_400_000)
+  const harness = await createHarness()
+  await writeObject(harness.home, orphan, 10, old)
+  const preview = await harness.service.preview()
+
+  await assert.rejects(
+    harness.service.execute({ planId: preview.plan.id, confirmation: 'yes' }),
+    (error) => error?.code === 'CONFIRMATION_REQUIRED',
+  )
+  assert.notEqual(await harness.service.getPlan(), null)
+  await fs.rm(harness.home, { recursive: true, force: true })
+})
+
+test('file aliases are deleted together and an unknown hard link is skipped', async (t) => {
+  const hash = '1'.repeat(64)
+  const extraLink = '2'.repeat(64)
+  const old = new Date(Date.now() - 25 * 86_400_000)
+  const harness = await createHarness()
+  const root = path.join(harness.home, 'attachments', 'v1')
+  const canonical = path.join(root, 'file-objects', hash.slice(0, 2), hash)
+  const display = path.join(root, 'files', hash.slice(0, 2), hash, 'report.pdf')
+  await writeBytes(canonical, 64)
+  await fs.mkdir(path.dirname(display), { recursive: true })
+  try {
+    await fs.link(canonical, display)
+  } catch (error) {
+    const code = error !== null && typeof error === 'object' ? error.code : undefined
+    if (code === 'EPERM' || code === 'EACCES' || code === 'EXDEV' || code === 'ENOTSUP') {
+      t.skip(`hard links are not permitted here (${code})`)
+      await fs.rm(harness.home, { recursive: true, force: true })
+      return
+    }
+    throw error
+  }
+  await fs.utimes(canonical, old, old)
+
+  const preview = await harness.service.preview()
+  assert.equal(preview.plan.totals.hashes, 1)
+  const result = await harness.service.execute({
+    planId: preview.plan.id,
+    confirmation: RECLAIM_CONFIRMATION,
+  })
+  assert.deepEqual(result.deleted, { hashes: 1, bytes: 64 })
+  await assert.rejects(fs.stat(canonical))
+  await assert.rejects(fs.stat(display))
+
+  // A second object with an extra, unknown hard link must be skipped.
+  const unknownRoot = path.join(harness.home, 'attachments', 'v1', 'objects', extraLink.slice(0, 2), extraLink)
+  await writeBytes(unknownRoot, 20)
+  await fs.link(unknownRoot, path.join(harness.home, 'external-link'))
+  await fs.utimes(unknownRoot, old, old)
+  const next = await harness.service.preview()
+  assert.equal(next.plan.totals.hashes, 1)
+  const skipped = await harness.service.execute({
+    planId: next.plan.id,
+    confirmation: RECLAIM_CONFIRMATION,
+  })
+  assert.deepEqual(skipped.deleted, { hashes: 0, bytes: 0 })
+  assert.deepEqual(skipped.skipped, [{ reason: 'linked-elsewhere' }])
+  await fs.stat(unknownRoot)
+  await fs.rm(harness.home, { recursive: true, force: true })
 })
 
 test('an empty candidate set produces a stable nothing-to-reclaim outcome', async () => {

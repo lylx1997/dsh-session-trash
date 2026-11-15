@@ -129,6 +129,11 @@ function createApi(options = {}) {
       if (options.reclaimPreview !== undefined) return options.reclaimPreview()
       return { ok: true, eligible: false, reason: 'NOTHING_TO_RECLAIM' }
     },
+    async execute(input) {
+      calls.push(['reclaimExecute', input])
+      if (options.reclaimExecute !== undefined) return options.reclaimExecute(input)
+      return { planId: input.planId, deleted: { hashes: 1, bytes: 10 }, skipped: [], failed: [], stale: false }
+    },
     async getPlan() {
       calls.push(['reclaimPlan'])
       if (options.reclaimPlan !== undefined) return options.reclaimPlan()
@@ -423,6 +428,47 @@ test('reclaim preview, plan, and cancel routes are owner-only and CSRF-protected
   const missingCsrf = await call('reclaim/preview', { method: 'POST' })
   assert.equal(missingCsrf.status, 403)
   assert.deepEqual(calls.filter((entry) => entry[0] === 'reclaimPreview'), [['reclaimPreview']])
+})
+
+test('POST /reclaim forwards the plan and confirmation, and validates the plan id', async () => {
+  const { call, calls } = createApi({
+    reclaimExecute: (input) => ({ planId: input.planId, deleted: { hashes: 2, bytes: 20 }, skipped: [], failed: [], stale: false }),
+  })
+  const result = await call('reclaim', {
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ planId: 'plan-1', confirmation: 'delete-unreferenced-attachments' }),
+  })
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.body, {
+    ok: true,
+    planId: 'plan-1',
+    deleted: { hashes: 2, bytes: 20 },
+    skipped: [],
+    failed: [],
+    stale: false,
+  })
+  assert.deepEqual(calls.at(-1), [
+    'reclaimExecute',
+    { planId: 'plan-1', confirmation: 'delete-unreferenced-attachments' },
+  ])
+
+  const missing = await call('reclaim', { headers: JSON_HEADERS, body: JSON.stringify({}) })
+  assert.equal(missing.status, 400)
+  assert.equal(missing.body.error.code, 'INVALID_REQUEST')
+})
+
+test('POST /reclaim maps plan and confirmation refusals to their statuses', async () => {
+  const stale = createApi({
+    reclaimExecute() {
+      throw new TrashError('PLAN_STALE', 'Session logs changed; preview the reclaim again.')
+    },
+  })
+  const result = await stale.call('reclaim', {
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ planId: 'plan-1', confirmation: 'delete-unreferenced-attachments' }),
+  })
+  assert.equal(result.status, 409)
+  assert.equal(result.body.error.code, 'PLAN_STALE')
 })
 
 test('POST /purge-all requires the CSRF header and never calls the service', async () => {

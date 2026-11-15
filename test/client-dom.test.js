@@ -18,6 +18,8 @@ const RESTORE_ROUTE = '/plugins/dsh-session-trash/api/restore'
 const PURGE_ROUTE = '/plugins/dsh-session-trash/api/purge'
 const REVEAL_ROUTE = '/plugins/dsh-session-trash/api/reveal'
 const FORGET_ROUTE = '/plugins/dsh-session-trash/api/forget'
+const RECLAIM_PREVIEW_ROUTE = '/plugins/dsh-session-trash/api/reclaim/preview'
+const RECLAIM_ROUTE = '/plugins/dsh-session-trash/api/reclaim'
 
 const DAY = 86_400_000
 
@@ -252,6 +254,92 @@ function byAriaLabel(container, label) {
 function buttonByText(container, text) {
   return [...container.querySelectorAll('button')].find((button) => button.textContent.trim() === text)
 }
+
+test('the reclaim dialog previews, requires the phrase, and deletes', async () => {
+  const payload = statePayload()
+  payload.storage = {
+    measuredAt: Date.now(),
+    totalBytes: 9 * 1024 * 1024,
+    sessionLogs: { count: 1, bytes: 1024 * 1024 },
+    trashLogs: { count: 1, bytes: 1024 },
+    attachments: {
+      files: 2,
+      bytes: 6 * 1024 * 1024,
+      complete: true,
+      referencedBytes: 5 * 1024 * 1024,
+      orphanBytes: 1024 * 1024,
+      unclassifiedBytes: 0,
+      scan: { status: 'complete', at: Date.now(), scannedFiles: 2, failedFiles: 0, failedDirs: 0, tornFiles: 0 },
+    },
+    attachmentCache: { files: 0, bytes: 0 },
+    projectionCache: { records: 0, bytes: 0, sweepableRecords: 0, sweepableBytes: 0 },
+  }
+  const harness = await mount({
+    payload,
+    routes: {
+      [RECLAIM_PREVIEW_ROUTE]: {
+        body: {
+          ok: true,
+          eligible: true,
+          plan: {
+            id: 'plan-1',
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 900_000,
+            totals: { hashes: 1, bytes: 1024 },
+            byStore: { objects: 1, fileObjects: 0, files: 0, requestImages: 0, unknown: 0 },
+            scan: { status: 'complete', at: Date.now(), scannedFiles: 2, failedFiles: 0, failedDirs: 0, tornFiles: 0 },
+          },
+        },
+      },
+      [RECLAIM_ROUTE]: {
+        body: { ok: true, planId: 'plan-1', deleted: { hashes: 1, bytes: 1024 }, skipped: [], failed: [], stale: false },
+      },
+    },
+  })
+  try {
+    const { container, document, window, calls, toasts } = harness
+    const open = buttonByText(container, '清理无引用附件…')
+    assert.ok(open !== undefined)
+    await act(async () => {
+      click(window, open)
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    const dialog = document.querySelector('[role="dialog"]')
+    assert.ok(dialog !== null)
+    assert.ok(dialog.textContent.includes('将删除 1 个附件对象，释放 1 KB。'))
+    const input = dialog.querySelector('.dsh-trash__reclaimInput')
+    assert.ok(input !== null)
+    const confirm = buttonByText(dialog, '永久删除')
+    assert.equal(confirm.disabled, true)
+    // React 19 in jsdom does not expose the removed test-utils Simulate API;
+    // invoke the controlled input's handler directly to exercise the state.
+    const reactPropsKey = Object.keys(input).find((key) => key.startsWith('__reactProps$'))
+    assert.ok(reactPropsKey !== undefined)
+    await act(async () => {
+      input[reactPropsKey].onChange({ target: { value: '删除附件' } })
+    })
+    const updatedDialog = document.querySelector('[role="dialog"]')
+    const enabled = buttonByText(updatedDialog, '永久删除')
+    assert.equal(enabled.disabled, false)
+    await act(async () => {
+      click(window, enabled)
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    const call = calls.find((entry) => entry.pathname === RECLAIM_ROUTE)
+    assert.ok(call !== undefined)
+    assert.deepEqual(JSON.parse(call.options.body), {
+      planId: 'plan-1',
+      confirmation: 'delete-unreferenced-attachments',
+    })
+    assert.ok(toasts.at(-1).text.includes('已删除 1 个无引用附件，释放 1 KB'))
+  } finally {
+    await harness.dispose()
+  }
+})
 
 test('the row menu handles arrow keys, Tab, outside clicks, and Escape', async () => {
   const harness = await mount()

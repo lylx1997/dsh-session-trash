@@ -149,6 +149,30 @@ window.__ModuleLoader__.load({
       storageScanPartial: '引用扫描不完整',
       storageScanUnavailable: '引用扫描不可用',
       storageIndexPartial: '附件统计不完整',
+      reclaimOpen: '清理无引用附件…',
+      reclaimTitle: '清理无引用附件？',
+      reclaimScanning: '正在扫描无引用附件…',
+      reclaimSummaryOne: '将删除 {count} 个附件对象，释放 {size}。',
+      reclaimSummaryOther: '将删除 {count} 个附件对象，释放 {size}。',
+      reclaimBody: '只删除超过 24 小时、没有任何会话引用的对象；共享附件、会话日志、投影缓存和搜索索引不会被删除。此操作不可恢复。',
+      reclaimHint: '建议先关闭其他 DSH 窗口；清理期间如有新会话或新引用，操作会自动停止。',
+      reclaimConfirmLabel: '输入「{phrase}」以确认',
+      reclaimConfirmPhrase: '删除附件',
+      reclaimConfirm: '永久删除',
+      reclaimDeleting: '正在删除…',
+      reclaimDoneOne: '已删除 {count} 个无引用附件，释放 {size}。',
+      reclaimDoneOther: '已删除 {count} 个无引用附件，释放 {size}。',
+      reclaimDoneSkipped: '已删除 {count} 个无引用附件，释放 {size}；跳过 {skipped} 个。',
+      reclaimStopped: '有会话更新，清理已停止；其余对象未删除。',
+      reclaimNothing: '没有超过 24 小时的无引用附件。',
+      reclaimMissing: '有 {count} 条日志缺失的回收站记录，无法判断其附件引用。先移除这些记录再清理。',
+      reclaimForgetMissing: '移除缺失记录并继续',
+      reclaimBusy: '回收站正在整理，请稍后重试。',
+      reclaimScanUnavailable: '当前 Node 运行时没有 zstd 解码器，无法安全扫描附件引用。',
+      reclaimScanIncomplete: '附件引用扫描不完整，无法安全清理。请重试或检查 DSH 日志。',
+      reclaimStale: '会话有更新，计划已失效，请重新预览。',
+      reclaimExpired: '清理计划已过期，请重新预览。',
+      reclaimRetry: '重新预览',
       searchLabel: '搜索回收站',
       searchPlaceholder: '搜索标题、Session ID 或原始工作区',
       searchClear: '清除搜索',
@@ -342,6 +366,30 @@ window.__ModuleLoader__.load({
       storageScanPartial: 'reference scan incomplete',
       storageScanUnavailable: 'reference scan unavailable',
       storageIndexPartial: 'attachment stats incomplete',
+      reclaimOpen: 'Clean up unreferenced attachments…',
+      reclaimTitle: 'Clean up unreferenced attachments?',
+      reclaimScanning: 'Scanning for unreferenced attachments…',
+      reclaimSummaryOne: 'Delete {count} attachment object and free {size}.',
+      reclaimSummaryOther: 'Delete {count} attachment objects and free {size}.',
+      reclaimBody: 'Only objects older than 24 hours with no session reference are deleted. Shared attachments, session logs, the projection cache, and the search index are not touched. This cannot be undone.',
+      reclaimHint: 'Close other DSH windows first. If a new session or reference appears during cleanup, the operation stops automatically.',
+      reclaimConfirmLabel: 'Type “{phrase}” to confirm',
+      reclaimConfirmPhrase: 'delete attachments',
+      reclaimConfirm: 'Delete permanently',
+      reclaimDeleting: 'Deleting…',
+      reclaimDoneOne: 'Deleted {count} unreferenced attachment and freed {size}.',
+      reclaimDoneOther: 'Deleted {count} unreferenced attachments and freed {size}.',
+      reclaimDoneSkipped: 'Deleted {count} unreferenced attachments and freed {size}; skipped {skipped}.',
+      reclaimStopped: 'A session changed, so cleanup stopped; the remaining objects were not deleted.',
+      reclaimNothing: 'No unreferenced attachments older than 24 hours.',
+      reclaimMissing: '{count} trash records have a missing log, so their attachment references cannot be proven. Remove those records before cleanup.',
+      reclaimForgetMissing: 'Remove missing records and continue',
+      reclaimBusy: 'The trash is being settled; try again shortly.',
+      reclaimScanUnavailable: 'This Node runtime has no zstd decoder, so attachment references cannot be scanned safely.',
+      reclaimScanIncomplete: 'The attachment reference scan is incomplete, so cleanup is blocked. Retry or inspect the DSH logs.',
+      reclaimStale: 'Sessions changed, so the plan expired. Preview again.',
+      reclaimExpired: 'The cleanup plan expired. Preview again.',
+      reclaimRetry: 'Preview again',
       searchLabel: 'Search the trash',
       searchPlaceholder: 'Search title, Session ID, or original workspace',
       searchClear: 'Clear search',
@@ -923,7 +971,11 @@ window.__ModuleLoader__.load({
       .dsh-trash__title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
       .dsh-trash__subtitle { margin: 0; font-size: 13px; line-height: 1.5; color: var(--dsw-alias-label-secondary); }
       .dsh-trash__toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 12px; }
-      .dsh-trash__storage { font-size: 12.5px; line-height: 1.5; color: var(--dsw-alias-label-secondary); opacity: 0.9; }
+      .dsh-trash__storage { font-size: 12.5px; line-height: 1.5; color: var(--dsw-alias-label-secondary); opacity: 0.9; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+      .dsh-trash__linkButton { border: 0; padding: 0; background: none; color: var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary)); font: inherit; font-size: 12.5px; cursor: pointer; text-decoration: underline; }
+      .dsh-trash__dialogHint { margin: 6px 0 0; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
+      .dsh-trash__reclaimInput { box-sizing: border-box; width: 100%; height: 34px; margin-top: 10px; padding: 0 10px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; outline: none; }
+      .dsh-trash__reclaimMissing { margin: 8px 0 0; padding-left: 18px; max-height: 140px; overflow: auto; font-size: 12.5px; }
       .dsh-trash__stats { font-size: 13px; color: var(--dsw-alias-label-secondary); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
       .dsh-trash__dot { opacity: 0.5; }
       .dsh-trash__toolbarActions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -1337,6 +1389,296 @@ window.__ModuleLoader__.load({
               },
               confirmLabel,
             ),
+          ),
+        ),
+      )
+    }
+
+    /**
+     * Preview-first attachment reclaim dialog. It never deletes without a
+     * successful preview and the exact confirmation phrase.
+     *
+     * @param {{
+     *   t: (key: string) => string,
+     *   onClose: () => void,
+     *   sendMutation: (pathname: string, body?: object) => Promise<any>,
+     *   onDone: (payload: any) => void,
+     *   fallbackRef: { current: any },
+     * }} props dialog content and callbacks.
+     * @returns {import('react').ReactElement} the dialog overlay.
+     */
+    function ReclaimDialog({ t, onClose, sendMutation, onDone, fallbackRef }) {
+      const [state, setState] = React.useState({ phase: 'loading' })
+      const [confirmation, setConfirmation] = React.useState('')
+      const sequence = React.useRef(0)
+      const dialogRef = React.useRef(null)
+      const cancelRef = React.useRef(null)
+      const sendRef = React.useRef(sendMutation)
+      const tRef = React.useRef(t)
+      const alive = React.useRef(true)
+      sendRef.current = sendMutation
+      tRef.current = t
+
+      React.useEffect(() => () => {
+        alive.current = false
+        sequence.current += 1
+      }, [])
+
+      const preview = React.useCallback(async () => {
+        const seq = ++sequence.current
+        setConfirmation('')
+        setState({ phase: 'loading' })
+        const outcome = await sendRef.current('reclaim/preview')
+        if (!alive.current || seq !== sequence.current) return
+        if (outcome.kind !== 'response') {
+          setState({
+            phase: 'error',
+            message: outcome.kind === 'timeout' ? tRef.current('errorTimeout') : tRef.current('errorNetwork'),
+          })
+          return
+        }
+        if (!outcome.ok) {
+          setState({ phase: 'error', message: describeFailure(outcome.status, outcome.payload, tRef.current) })
+          return
+        }
+        const payload = outcome.payload
+        if (payload?.eligible === true && payload.plan !== undefined) {
+          setState({ phase: 'ready', plan: payload.plan })
+          return
+        }
+        setState({
+          phase: 'blocked',
+          reason: typeof payload?.reason === 'string' ? payload.reason : 'UNKNOWN',
+          missing: Array.isArray(payload?.missing) ? payload.missing : [],
+        })
+      }, [])
+
+      React.useEffect(() => {
+        void preview()
+      }, [preview])
+
+      React.useEffect(() => {
+        cancelRef.current?.focus()
+      }, [state.phase])
+
+      React.useEffect(() => {
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            if (state.phase !== 'deleting') onClose()
+            return
+          }
+          if (event.key !== 'Tab' || dialogRef.current === null) return
+          const nodes = [...dialogRef.current.querySelectorAll('button, input, [href], select, textarea')].filter(
+            (node) => !node.disabled,
+          )
+          if (nodes.length === 0) return
+          const first = nodes[0]
+          const last = nodes[nodes.length - 1]
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault()
+            last.focus()
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault()
+            first.focus()
+          }
+        }
+        document.addEventListener('keydown', onKeyDown, true)
+        return () => document.removeEventListener('keydown', onKeyDown, true)
+      }, [onClose, state.phase])
+
+      React.useEffect(() => {
+        const previous = document.activeElement
+        return () => {
+          if (previous !== null && typeof previous.focus === 'function' && previous.isConnected !== false) {
+            previous.focus()
+            return
+          }
+          const fallback = fallbackRef === null || fallbackRef === undefined ? null : fallbackRef.current
+          if (fallback !== null && typeof fallback.focus === 'function') fallback.focus()
+        }
+      }, [fallbackRef])
+
+      const titleId = 'dsh-trash-dialog-title-reclaim'
+      const bodyId = 'dsh-trash-dialog-body-reclaim'
+      const phrase = t('reclaimConfirmPhrase')
+      const canConfirm = confirmation.trim() === phrase
+
+      let body
+      let primary = null
+      if (state.phase === 'loading') {
+        body = h('p', null, t('reclaimScanning'))
+      } else if (state.phase === 'deleting') {
+        body = h('p', null, t('reclaimDeleting'))
+      } else if (state.phase === 'error') {
+        body = h('p', null, state.message)
+        primary = h('button', { type: 'button', className: 'dsh-trash__button', onClick: () => void preview() }, t('reclaimRetry'))
+      } else if (state.phase === 'blocked') {
+        let message
+        if (state.reason === 'TRASH_HAS_MISSING') {
+          message = format(t('reclaimMissing'), { count: state.missing.length })
+        } else if (state.reason === 'TRASH_BUSY') {
+          message = t('reclaimBusy')
+        } else if (state.reason === 'SCAN_UNAVAILABLE') {
+          message = t('reclaimScanUnavailable')
+        } else if (
+          state.reason === 'SCAN_INCOMPLETE' ||
+          state.reason === 'ATTACHMENTS_INCOMPLETE' ||
+          state.reason === 'ROOTS_INCOMPLETE' ||
+          state.reason === 'SESSION_FLUSH_FAILED'
+        ) {
+          message = t('reclaimScanIncomplete')
+        } else if (state.reason === 'NOTHING_TO_RECLAIM') {
+          message = t('reclaimNothing')
+        } else if (state.reason === 'PLAN_STALE') {
+          message = t('reclaimStale')
+        } else if (state.reason === 'PLAN_EXPIRED') {
+          message = t('reclaimExpired')
+        } else if (state.reason === 'INDEX_CORRUPT') {
+          message = t('corruptBanner')
+        } else {
+          message = t('errorGeneric')
+        }
+        body = h(
+          'div',
+          null,
+          h('p', null, message),
+          state.missing.length === 0
+            ? null
+            : h(
+                'ul',
+                { className: 'dsh-trash__reclaimMissing' },
+                state.missing.map((entry) =>
+                  h('li', { key: entry.sessionId }, entry.title ?? entry.sessionId),
+                ),
+              ),
+        )
+        primary =
+          state.reason === 'TRASH_HAS_MISSING'
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-trash__button',
+                  onClick: async () => {
+                    setState({ phase: 'loading' })
+                    for (const entry of state.missing) {
+                      const outcome = await sendRef.current('forget', { sessionId: entry.sessionId })
+                      if (!alive.current) return
+                      if (outcome.kind !== 'response' || !outcome.ok) {
+                        setState({
+                          phase: 'error',
+                          message:
+                            outcome.kind === 'timeout'
+                              ? tRef.current('errorTimeout')
+                              : outcome.kind === 'network'
+                                ? tRef.current('errorNetwork')
+                                : describeFailure(outcome.status, outcome.payload, tRef.current),
+                        })
+                        return
+                      }
+                    }
+                    await preview()
+                  },
+                },
+                t('reclaimForgetMissing'),
+              )
+            : state.reason === 'NOTHING_TO_RECLAIM' || state.reason === 'INDEX_CORRUPT'
+              ? null
+              : h('button', { type: 'button', className: 'dsh-trash__button', onClick: () => void preview() }, t('reclaimRetry'))
+      } else if (state.phase === 'ready') {
+        body = h(
+          'div',
+          null,
+          h('p', null, countText(t, 'reclaimSummary', state.plan.totals.hashes, {
+            size: formatBytes(state.plan.totals.bytes),
+          })),
+          h('p', null, t('reclaimBody')),
+          h('p', { className: 'dsh-trash__dialogHint' }, t('reclaimHint')),
+          h('input', {
+            type: 'text',
+            className: 'dsh-trash__reclaimInput',
+            value: confirmation,
+            placeholder: format(t('reclaimConfirmLabel'), { phrase }),
+            'aria-label': format(t('reclaimConfirmLabel'), { phrase }),
+            autoComplete: 'off',
+            spellCheck: false,
+            onChange: (event) => setConfirmation(event.target.value),
+          }),
+        )
+        primary = h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-trash__button dsh-trash__button--danger',
+            disabled: !canConfirm,
+            onClick: async () => {
+              if (!canConfirm) return
+              setState({ phase: 'deleting' })
+              const outcome = await sendRef.current('reclaim', {
+                planId: state.plan.id,
+                confirmation: 'delete-unreferenced-attachments',
+              })
+              if (!alive.current) return
+              if (outcome.kind !== 'response') {
+                setState({
+                  phase: 'error',
+                  message: outcome.kind === 'timeout' ? tRef.current('errorTimeout') : tRef.current('errorNetwork'),
+                })
+                return
+              }
+              if (!outcome.ok) {
+                const code = outcome.payload?.error?.code
+                if (code === 'PLAN_STALE' || code === 'PLAN_EXPIRED') {
+                  setState({ phase: 'blocked', reason: code, missing: [] })
+                  return
+                }
+                setState({ phase: 'error', message: describeFailure(outcome.status, outcome.payload, tRef.current) })
+                return
+              }
+              onDone(outcome.payload)
+            },
+          },
+          t('reclaimConfirm'),
+        )
+      }
+
+      return h(
+        'div',
+        {
+          className: 'dsh-trash__overlay',
+          onMouseDown: (event) => {
+            if (event.target === event.currentTarget && state.phase !== 'deleting') onClose()
+          },
+        },
+        h(
+          'div',
+          {
+            className: 'dsh-trash__dialog',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-labelledby': titleId,
+            'aria-describedby': bodyId,
+            ref: dialogRef,
+          },
+          h('h3', { className: 'dsh-trash__dialogTitle', id: titleId }, t('reclaimTitle')),
+          h('div', { className: 'dsh-trash__dialogBody', id: bodyId }, body),
+          h(
+            'div',
+            { className: 'dsh-trash__dialogActions' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-trash__button',
+                onClick: onClose,
+                ref: cancelRef,
+                disabled: state.phase === 'deleting',
+              },
+              t('dialogCancel'),
+            ),
+            primary,
           ),
         ),
       )
@@ -2471,6 +2813,11 @@ window.__ModuleLoader__.load({
         } else if (attachmentScan?.status === 'unavailable') {
           attachmentLabel += `（${t('storageScanUnavailable')}）`
         }
+        const canReclaim =
+          storage !== null &&
+          storage.attachments?.complete === true &&
+          storage.attachments?.scan?.status === 'complete' &&
+          Number(storage.attachments?.orphanBytes) > 0
         const storageLine =
           storage === null || !(Number(storage.totalBytes) > 0)
             ? null
@@ -2490,6 +2837,18 @@ window.__ModuleLoader__.load({
                 }),
                 Number(storage.projectionCache?.sweepableBytes) > 0
                   ? ` · ${format(t('storageSweepable'), { size: formatBytes(storage.projectionCache.sweepableBytes) })}`
+                  : null,
+                canReclaim
+                  ? h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'dsh-trash__linkButton',
+                        'aria-haspopup': 'dialog',
+                        onClick: () => setDialog({ kind: 'reclaim' }),
+                      },
+                      t('reclaimOpen'),
+                    )
                   : null,
               )
 
@@ -2878,10 +3237,34 @@ window.__ModuleLoader__.load({
             ? h('p', { className: 'dsh-trash__footnote', key: 'footnote' }, format(t('footnote'), { path: data.trashRootDisplay }))
             : null
 
+        function handleReclaimDone(payload) {
+          const count = typeof payload?.deleted?.hashes === 'number' ? payload.deleted.hashes : 0
+          const size = formatBytes(payload?.deleted?.bytes)
+          const skipped =
+            (Array.isArray(payload?.skipped) ? payload.skipped.length : 0) +
+            (Array.isArray(payload?.failed) ? payload.failed.length : 0)
+          let message = skipped > 0
+            ? format(t('reclaimDoneSkipped'), { count, size, skipped })
+            : countText(t, 'reclaimDone', count, { size })
+          if (payload?.stale === true) message += ` ${t('reclaimStopped')}`
+          bumpRevision()
+          ctx.contextMenus.notify(message, (Array.isArray(payload?.failed) ? payload.failed.length : 0) === 0)
+          announce(message)
+          setDialog(null)
+        }
+
         const dialogNode =
           dialog === null
             ? null
-            : h(ConfirmDialog, {
+            : dialog.kind === 'reclaim'
+              ? h(ReclaimDialog, {
+                  t,
+                  onClose: closeDialog,
+                  sendMutation,
+                  onDone: handleReclaimDone,
+                  fallbackRef: panelRef,
+                })
+              : h(ConfirmDialog, {
                 kind: dialog.kind,
                 entry: dialog.entry,
                 count: dialog.count,

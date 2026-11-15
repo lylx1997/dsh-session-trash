@@ -277,6 +277,23 @@ async function writeProjectionCache(home, sessionId, title, cwd) {
 }
 
 /**
+ * Write one durable attachment object with an explicit size and mtime.
+ *
+ * @param {string} home throwaway DSH home.
+ * @param {string} hash lowercase sha256 digest.
+ * @param {number} bytes object size.
+ * @param {Date} mtime modification time.
+ * @returns {Promise<string>} the written path.
+ */
+async function writeAttachmentObject(home, hash, bytes, mtime) {
+  const file = path.join(home, 'attachments', 'v1', 'objects', hash.slice(0, 2), hash)
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  await fs.writeFile(file, Buffer.alloc(bytes, 1))
+  await fs.utimes(file, mtime, mtime)
+  return file
+}
+
+/**
  * Write a durable workspace registry with an explicit session order per row.
  *
  * @param {string} home throwaway DSH home.
@@ -920,6 +937,37 @@ try {
   assert.deepEqual(afterPurgeWorkspaces.tables.workspaces['ws-purge'].sessionIds, [])
   await assert.rejects(fs.stat(purgeCache))
   pass('permanent purge removes the object, index entry, projection cache, and workspace accounting')
+
+  // --- Attachment reclaim -------------------------------------------------
+  const reclaimProject = path.join(home, 'project-reclaim')
+  const referencedHash = '8'.repeat(64)
+  const orphanHash = '9'.repeat(64)
+  const oldAttachment = new Date(Date.now() - 25 * 86_400_000)
+  await fs.mkdir(reclaimProject, { recursive: true })
+  await writeSession(home, 'session-reclaim-ref', reclaimProject, {
+    title: `Referenced attachment sha256:${referencedHash}`,
+  })
+  const referencedObject = await writeAttachmentObject(home, referencedHash, 50, oldAttachment)
+  const orphanObject = await writeAttachmentObject(home, orphanHash, 100, oldAttachment)
+
+  const attachmentPreview = await api.call('reclaim/preview', { method: 'POST' })
+  assert.equal(attachmentPreview.status, 200)
+  assert.equal(attachmentPreview.body.eligible, true)
+  assert.equal(attachmentPreview.body.plan.totals.hashes, 1)
+  assert.equal(attachmentPreview.body.plan.totals.bytes, 100)
+  const attachmentReclaim = await api.call('reclaim', {
+    method: 'POST',
+    body: {
+      planId: attachmentPreview.body.plan.id,
+      confirmation: 'delete-unreferenced-attachments',
+    },
+  })
+  assert.equal(attachmentReclaim.status, 200)
+  assert.equal(attachmentReclaim.body.deleted.hashes, 1)
+  assert.equal(attachmentReclaim.body.deleted.bytes, 100)
+  await assert.rejects(fs.stat(orphanObject))
+  assert.equal((await fs.stat(referencedObject)).isFile(), true)
+  pass('attachment reclaim deletes only the unreferenced object')
 
   // --- Delete all permanently --------------------------------------------
   const bulkEntries = []

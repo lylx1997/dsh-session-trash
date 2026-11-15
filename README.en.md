@@ -164,7 +164,8 @@ Defaults apply when `config` is omitted. Invalid values reject activation instea
   trash-index.json.bak      # previous committed index
   .lock                     # cross-process lock
   reclaim/
-    plan.json               # attachment reclaim preview plan (15-minute TTL; deletes nothing)
+    plan.json               # attachment reclaim plan (15-minute TTL)
+    reclaim-log.jsonl       # attachment reclaim audit log
   objects/
     <trashId>/
       meta.json             # object metadata
@@ -196,7 +197,8 @@ All routes live under `/plugins/dsh-session-trash/api/` and are registered as ex
 | `POST` | `/restore` | `{ sessionId, mode: 'normal' \| 'orphan' }` |
 | `POST` | `/purge` | `{ sessionId }`; permanently deletes the session log, its projection-cache record, and its workspace accounting; the response carries `freedBytes` |
 | `POST` | `/purge-all` | No body; permanently deletes every entry in the trash, dropping `missing` index records only; returns `{ ok, purged, forgotten, failed, freedBytes }` |
-| `POST` | `/reclaim/preview` | No body; read-only attachment-reclaim plan, no files deleted; returns `eligible` and a plan summary, or a reason |
+| `POST` | `/reclaim/preview` | No body; builds an attachment-reclaim plan, no files deleted; returns `eligible` and a plan summary, or a reason |
+| `POST` | `/reclaim` | `{ planId, confirmation: "delete-unreferenced-attachments" }`; executes the plan and deletes unreferenced objects |
 | `GET` | `/reclaim/plan` | Returns the current plan summary; `plan` is `null` when absent or expired |
 | `POST` | `/reclaim/cancel` | Deletes the plan file; deletes no attachments |
 | `POST` | `/forget` | `{ sessionId }`; removes only a `missing` index entry |
@@ -205,7 +207,7 @@ All routes live under `/plugins/dsh-session-trash/api/` and are registered as ex
 | `POST` | `/cleanup` | No body; runs one cleanup sweep |
 | `POST` | `/rebuild` | No body; rebuilds the index only in protection mode |
 
-`/reclaim/*` only produces a plan for now; it deletes no attachments. Actual deletion, confirmation, and the audit log arrive in a later release. The plan lives at `<DSH_HOME>/.session-trash/reclaim/plan.json` and expires after 15 minutes.
+`/reclaim/preview` only builds a plan; `POST /reclaim` executes it and requires the exact confirmation phrase. The plan lives at `<DSH_HOME>/.session-trash/reclaim/plan.json` and expires after 15 minutes; every execution appends to `reclaim-log.jsonl`.
 
 Requests must pass `ctx.connection.requestRejection()` and `ctx.connection.admit()`. `POST` requests also carry `X-DSH-Session-Trash: 1`. JSON bodies use `Content-Type: application/json` and are limited to 64 KiB. Responses use `Cache-Control: no-store` and never expose the absolute trash root.
 
@@ -219,7 +221,7 @@ Restore and maintenance refusals include `TRASH_ENTRY_NOT_FOUND`, `TRASH_STATE_I
 
 `attachments` carries `files`, `bytes`, `complete`, `referencedBytes`, `orphanBytes`, `unclassifiedBytes`, and `scan`. Every `/state` reconciles; the first one decompresses the logs: it performs a read-only scan of every session log (including logs inside the trash) for `sha256` references, then compares them with the object hashes under `attachments/v1`. `referencedBytes` and `orphanBytes` are published only when the scan is complete; otherwise both are `null` and `scan.status` is `partial` or `unavailable`. `complete: false` means the attachment directories could not be read in full, which also suppresses the orphan estimate. Per-file results are cached by size and mtime, so later requests only stat the logs.
 
-**This release is read-only: it never deletes an attachment.** Reclamation and its confirmation flow belong to a later release. Without a zstd decoder in the Node runtime (roughly Node < 22.15), `scan.status` is `unavailable` and the page shows the attachment total only.
+The scan itself is read-only; reclamation runs through `/reclaim` after a preview and the typed confirmation phrase, and deletion is permanent. Without a zstd decoder in the Node runtime (roughly Node < 22.15), `scan.status` is `unavailable` and the page shows the attachment total only.
 
 `/state` entries gain `subagentCount` (hidden children moved along) and `members` (parent first, each with `sessionId`, `origin`, and `sizeBytes`); `sizeBytes`/`fileCount` cover the whole tree. The `entry` returned by `/trash` uses the same shape. Entries also carry `lastErrorCode` (a stable category the page localizes) and `lastError` (the raw English diagnostic, used only as a tooltip).
 
@@ -232,7 +234,7 @@ Restore and maintenance refusals include `TRASH_ENTRY_NOT_FOUND`, `TRASH_STATE_I
 - Archive and pin state survive trash and restore. The Trash page does not manage either set.
 - Permanent deletion removes the session log, its projection-cache record, and its workspace accounting (including archive and pin markers); a cleanup failure is logged and never rolls back an already-completed log deletion. Attachments and images are not deleted; the search index is derived data and DSH drops the deleted session on its next search.
 - The attachment reference scan is a read-only estimate. It needs Node's zstd decoder (Node 22.15+) and only reads durable log tails; a log that is still being appended is counted in `scan.tornFiles`.
-- Attachment reclamation is preview-only (`/reclaim/preview`) in this release; it never deletes a file. Deletion, confirmation, and the audit log arrive in a later release.
+- Attachment reclamation is manual: when a complete scan finds unreferenced objects, the storage line offers "Clean up unreferenced attachments…". Preview first, then type the localized confirmation phrase; only objects older than 24 hours with no session reference are deleted, and deletion is permanent.
 - Unindexed objects (object directories whose `meta.json` is damaged or unreadable) are never deleted automatically; the page can only clean empty leftovers that hold no session log, and anything that may contain logs is left for manual inspection.
 - `/state` returns all entry summaries and the storage breakdown in one response. Search, filtering, and paging happen in the Client.
 - Same-origin tabs in the same browser sync index changes through `BroadcastChannel`; different browsers or machines still need a refresh.
@@ -253,17 +255,21 @@ No. The session directory moves under `<DSH_HOME>/.session-trash/objects/` and s
 
 ### Does permanent deletion remove attachments and images
 
-No. Attachments and images are content-addressed and may be shared by several sessions, so the plugin never deletes them per session. Permanent deletion removes the session log, its projection-cache record, and its workspace accounting; the search index drops the session on its next search. Global attachment reclamation is outside this release.
+No. Attachments and images are content-addressed and may be shared by several sessions, so the plugin never deletes them per session. Permanent deletion removes the session log, its projection-cache record, and its workspace accounting; the search index drops the session on its next search. Global attachment reclamation is a separate manual action on the Trash page.
 
 ### How is the attachment "unreferenced" figure calculated
 
-The plugin performs a read-only scan of session logs under `sessions/` and inside the trash, collects every `sha256` attachment ID they mention, and compares that set with the object hashes under `attachments/v1`. An object no session references counts as `orphanBytes`. A shared image still counts as referenced while at least one session mentions it. When the scan is incomplete the page says "reference scan incomplete" and publishes no orphan estimate. This release reports only; it does not delete.
+The plugin performs a read-only scan of session logs under `sessions/` and inside the trash, collects every `sha256` attachment ID they mention, and compares that set with the object hashes under `attachments/v1`. An object no session references counts as `orphanBytes`. A shared image still counts as referenced while at least one session mentions it. When the scan is incomplete the page says "reference scan incomplete" and publishes no orphan estimate. Confirming cleanup rescans and checks the log fingerprint, and deletes only objects older than 24 hours that are still unreferenced.
 
-Only session logs are considered: unsaved pastes, staged uploads, and copies kept by third-party memory or index plugins are not in the reference set, so the unreferenced figure is a conservative estimate. The deletion slice will rescan with a grace period.
+Only session logs are considered: unsaved pastes, staged uploads, and copies kept by third-party memory or index plugins are not in the reference set, so the unreferenced figure is a conservative estimate. Execution rescans and checks the fingerprint first; an object must also be older than 24 hours.
 
 ### Why is the trash total smaller than disk usage
 
 The toolbar's "Logs" figure counts only trashed session logs. Attachments, images, the projection cache, and the regenerable cache appear in the device-wide "Session data" line. Attachments are content-addressed and may be shared by several sessions, so the plugin never attributes a shared object's bytes to one row.
+
+### What does attachment cleanup delete
+
+Only known-layout objects under `attachments/v1` that are older than 24 hours and referenced by no session log. Shared attachments, `tmp/`, unknown layouts, session logs, the projection cache, the search index, and workspace files are never touched. Deletion is permanent and every run appends to the audit log.
 
 ### Where does a restored session go
 

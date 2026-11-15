@@ -7,6 +7,7 @@ import { createTrashService } from './lib/trash-service.js'
 import { createCleanupService } from './lib/cleanup.js'
 import { createStorageStats } from './lib/storage.js'
 import { createReferenceScanner } from './lib/references.js'
+import { createReclaimService } from './lib/reclaim.js'
 import { registerApi } from './lib/http.js'
 
 /** Host services this plugin cannot work without. */
@@ -86,6 +87,14 @@ export function apply(ctx, config) {
     logger: scoped,
     paths,
   })
+  const reclaimService = createReclaimService({
+    ctx,
+    store,
+    trashService,
+    references,
+    paths,
+    logger: scoped,
+  })
   const cleanupService = createCleanupService({
     ctx,
     trashService,
@@ -150,5 +159,5 @@ export function apply(ctx, config) {
     })
   ready.catch(() => {})
 
-  registerApi({ ctx, eligibility, stateService, trashService, cleanupService, ready, config, logger: scoped })
+  registerApi({ ctx, eligibility, stateService, trashService, reclaimService, cleanupService, ready, config, logger: scoped })
 }

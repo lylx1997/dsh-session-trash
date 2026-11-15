@@ -665,6 +665,14 @@ try {
   pass('state projection + Client boot registration and module serving')
 
   // --- HTTP contract -------------------------------------------------------
+  const reclaimPreview = await api.call('reclaim/preview', { method: 'POST' })
+  assert.equal(reclaimPreview.status, 200)
+  assert.equal(reclaimPreview.body.eligible, false)
+  assert.equal(reclaimPreview.body.reason, 'NOTHING_TO_RECLAIM')
+  const reclaimPlan = await api.call('reclaim/plan', { method: 'GET' })
+  assert.equal(reclaimPlan.status, 200)
+  assert.equal(reclaimPlan.body.plan, null)
+
   const unauthenticated = await api.call('state', { authenticated: false })
   assert.equal(unauthenticated.status, 401)
   const missingCsrf = await api.call('trash', { method: 'POST', body: { sessionId: alphaId }, csrf: false })

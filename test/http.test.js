@@ -123,6 +123,22 @@ function createApi(options = {}) {
       return { removed: 2 }
     },
   }
+  const reclaimService = {
+    async preview() {
+      calls.push(['reclaimPreview'])
+      if (options.reclaimPreview !== undefined) return options.reclaimPreview()
+      return { ok: true, eligible: false, reason: 'NOTHING_TO_RECLAIM' }
+    },
+    async getPlan() {
+      calls.push(['reclaimPlan'])
+      if (options.reclaimPlan !== undefined) return options.reclaimPlan()
+      return null
+    },
+    async cancel() {
+      calls.push(['reclaimCancel'])
+      return { ok: true }
+    },
+  }
   const cleanupService = {
     async runNow(input) {
       calls.push(['cleanup', input])
@@ -154,6 +170,7 @@ function createApi(options = {}) {
       },
     },
     trashService,
+    reclaimService,
     cleanupService,
     ready: Promise.resolve(),
     config: { debug: false },
@@ -383,6 +400,29 @@ test('POST /purge and /purge-all report freed bytes when the service knows them'
   const purgedAll = await call('purge-all', { headers: JSON_HEADERS })
   assert.equal(purgedAll.status, 200)
   assert.deepEqual(purgedAll.body, { ok: true, purged: 2, forgotten: 0, failed: 0, freedBytes: 8192 })
+})
+
+test('reclaim preview, plan, and cancel routes are owner-only and CSRF-protected', async () => {
+  const { call, calls } = createApi({
+    reclaimPreview: () => ({ ok: true, eligible: true, plan: { id: 'p1' } }),
+    reclaimPlan: () => ({ id: 'p1' }),
+  })
+
+  const preview = await call('reclaim/preview', { headers: JSON_HEADERS, method: 'POST' })
+  assert.equal(preview.status, 200)
+  assert.deepEqual(preview.body, { ok: true, eligible: true, plan: { id: 'p1' } })
+
+  const plan = await call('reclaim/plan', { headers: JSON_HEADERS, method: 'GET' })
+  assert.equal(plan.status, 200)
+  assert.deepEqual(plan.body, { ok: true, plan: { id: 'p1' } })
+
+  const cancelled = await call('reclaim/cancel', { headers: JSON_HEADERS, method: 'POST' })
+  assert.equal(cancelled.status, 200)
+  assert.deepEqual(cancelled.body, { ok: true })
+
+  const missingCsrf = await call('reclaim/preview', { method: 'POST' })
+  assert.equal(missingCsrf.status, 403)
+  assert.deepEqual(calls.filter((entry) => entry[0] === 'reclaimPreview'), [['reclaimPreview']])
 })
 
 test('POST /purge-all requires the CSRF header and never calls the service', async () => {

@@ -163,6 +163,8 @@ Defaults apply when `config` is omitted. Invalid values reject activation instea
   trash-index.json          # authoritative index
   trash-index.json.bak      # previous committed index
   .lock                     # cross-process lock
+  reclaim/
+    plan.json               # attachment reclaim preview plan (15-minute TTL; deletes nothing)
   objects/
     <trashId>/
       meta.json             # object metadata
@@ -194,11 +196,16 @@ All routes live under `/plugins/dsh-session-trash/api/` and are registered as ex
 | `POST` | `/restore` | `{ sessionId, mode: 'normal' \| 'orphan' }` |
 | `POST` | `/purge` | `{ sessionId }`; permanently deletes the session log, its projection-cache record, and its workspace accounting; the response carries `freedBytes` |
 | `POST` | `/purge-all` | No body; permanently deletes every entry in the trash, dropping `missing` index records only; returns `{ ok, purged, forgotten, failed, freedBytes }` |
+| `POST` | `/reclaim/preview` | No body; read-only attachment-reclaim plan, no files deleted; returns `eligible` and a plan summary, or a reason |
+| `GET` | `/reclaim/plan` | Returns the current plan summary; `plan` is `null` when absent or expired |
+| `POST` | `/reclaim/cancel` | Deletes the plan file; deletes no attachments |
 | `POST` | `/forget` | `{ sessionId }`; removes only a `missing` index entry |
 | `POST` | `/orphans/forget` | No body; removes empty unindexed object directories that hold no session log; returns `{ ok, removed }` |
 | `POST` | `/reveal` | `{ sessionId }`; opens the original workspace |
 | `POST` | `/cleanup` | No body; runs one cleanup sweep |
 | `POST` | `/rebuild` | No body; rebuilds the index only in protection mode |
+
+`/reclaim/*` only produces a plan for now; it deletes no attachments. Actual deletion, confirmation, and the audit log arrive in a later release. The plan lives at `<DSH_HOME>/.session-trash/reclaim/plan.json` and expires after 15 minutes.
 
 Requests must pass `ctx.connection.requestRejection()` and `ctx.connection.admit()`. `POST` requests also carry `X-DSH-Session-Trash: 1`. JSON bodies use `Content-Type: application/json` and are limited to 64 KiB. Responses use `Cache-Control: no-store` and never expose the absolute trash root.
 
@@ -224,7 +231,8 @@ Restore and maintenance refusals include `TRASH_ENTRY_NOT_FOUND`, `TRASH_STATE_I
 - Orphan restore never recreates the original workspace directory and never reattaches the session to a workspace.
 - Archive and pin state survive trash and restore. The Trash page does not manage either set.
 - Permanent deletion removes the session log, its projection-cache record, and its workspace accounting (including archive and pin markers); a cleanup failure is logged and never rolls back an already-completed log deletion. Attachments and images are not deleted; the search index is derived data and DSH drops the deleted session on its next search.
-- The attachment reference scan is a read-only estimate. It needs Node's zstd decoder (Node 22.15+) and only reads durable log tails; a log that is still being appended is counted in `scan.tornFiles`. Deleting attachments will rescan with a grace period; this release never deletes them.
+- The attachment reference scan is a read-only estimate. It needs Node's zstd decoder (Node 22.15+) and only reads durable log tails; a log that is still being appended is counted in `scan.tornFiles`.
+- Attachment reclamation is preview-only (`/reclaim/preview`) in this release; it never deletes a file. Deletion, confirmation, and the audit log arrive in a later release.
 - Unindexed objects (object directories whose `meta.json` is damaged or unreadable) are never deleted automatically; the page can only clean empty leftovers that hold no session log, and anything that may contain logs is left for manual inspection.
 - `/state` returns all entry summaries and the storage breakdown in one response. Search, filtering, and paging happen in the Client.
 - Same-origin tabs in the same browser sync index changes through `BroadcastChannel`; different browsers or machines still need a refresh.

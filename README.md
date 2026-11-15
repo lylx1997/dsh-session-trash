@@ -163,6 +163,8 @@ npm 安装的插件在「插件」页打开「会话回收站」的详情，展�
   trash-index.json          # 主索引
   trash-index.json.bak      # 上一次成功提交的索引
   .lock                     # 跨进程锁
+  reclaim/
+    plan.json               # 附件回收预览计划（15 分钟过期；不删除附件）
   objects/
     <trashId>/
       meta.json             # 对象元数据
@@ -192,11 +194,16 @@ npm 安装的插件在「插件」页打开「会话回收站」的详情，展�
 | `POST` | `/restore` | `{ sessionId, mode: 'normal' \| 'orphan' }` |
 | `POST` | `/purge` | `{ sessionId }`，永久删除会话日志，并清理该会话的投影缓存记录和工作区记账；响应带 `freedBytes` |
 | `POST` | `/purge-all` | 无请求体，永久删除回收站中的全部条目；`missing` 记录仅移除索引；返回 `{ ok, purged, forgotten, failed, freedBytes }` |
+| `POST` | `/reclaim/preview` | 无请求体；只读生成附件回收计划，不删除文件；返回 `eligible` 和计划摘要，或不可回收的原因 |
+| `GET` | `/reclaim/plan` | 返回当前计划摘要；无计划或已过期时 `plan` 为 `null` |
+| `POST` | `/reclaim/cancel` | 删除计划文件，不删除附件 |
 | `POST` | `/forget` | `{ sessionId }`，仅移除 `missing` 条目的索引记录 |
 | `POST` | `/orphans/forget` | 无请求体，删除不含会话日志的空无主对象目录；返回 `{ ok, removed }` |
 | `POST` | `/reveal` | `{ sessionId }`，打开原工作区 |
 | `POST` | `/cleanup` | 无请求体，手动执行一次清理 |
 | `POST` | `/rebuild` | 无请求体，仅在索引保护模式下重建 |
+
+`/reclaim/*` 目前只生成计划，不删除附件；实际删除、确认短语和审计日志在后续版本。计划文件位于 `<DSH_HOME>/.session-trash/reclaim/plan.json`，15 分钟过期。
 
 请求需要通过 `ctx.connection.requestRejection()` 和 `ctx.connection.admit()`，`POST` 还要带 `X-DSH-Session-Trash: 1`。请求体使用 `Content-Type: application/json`，上限 64 KiB。响应带 `Cache-Control: no-store`，不返回回收站根目录的绝对路径。
 
@@ -222,7 +229,8 @@ npm 安装的插件在「插件」页打开「会话回收站」的详情，展�
 - 孤儿恢复不会重建原工作区目录，也不会重新挂到工作区。
 - 归档和置顶状态会跨回收、恢复保留，回收站页面不管理这两个集合。
 - 永久删除会删除会话日志、该会话的投影缓存记录和工作区记账（含归档、置顶标记）；这些清理失败只记日志，不影响已完成的日志删除。附件和图片不会被删除；搜索索引是派生数据，DSH 会在下次搜索时自动剔除已删除的会话。
-- 附件引用扫描是只读估算：依赖 Node 的 zstd 解码（Node 22.15+），并且只读已落盘的日志尾部；正在追加的活跃日志会单独计入 `scan.tornFiles`。删附件之前会重新扫描并配合宽限期，当前版本不删。
+- 附件引用扫描是只读估算：依赖 Node 的 zstd 解码（Node 22.15+），并且只读已落盘的日志尾部；正在追加的活跃日志会单独计入 `scan.tornFiles`。
+- 附件回收目前只提供预览计划（`/reclaim/preview`），不会删除任何文件；删除、确认短语和审计日志在后续版本。
 - 无主对象（`meta.json` 损坏或无法识别的对象目录）不会自动删除；页面只能清理其中不含会话日志的空目录，可能含日志的需要人工处理。
 - `/state` 一次返回全部条目摘要和存储分解，页面在客户端搜索、筛选和分页。
 - 同一浏览器的同源标签页通过 `BroadcastChannel` 实时同步索引变更；不同浏览器或不同设备之间仍需刷新页面。

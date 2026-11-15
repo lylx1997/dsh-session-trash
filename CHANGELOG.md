@@ -9,15 +9,18 @@
 - 只读扫描所有会话日志（含回收站对象）里的附件引用，`/state.storage.attachments` 增加 `referencedBytes`、`orphanBytes`、`unclassifiedBytes` 和 `scan`；页面显示“附件 X（其中 Y 无引用）”。
 - 扫描按文件大小和 mtime 缓存：首次扫描约几百毫秒，后续 `/state` 只做 stat；拼接 zstd 帧逐帧解码，正在追加的活跃日志尾部单独计入 `tornFiles`。
 - 扫描不完整（日志损坏、目录不可读、缺少 zstd 解码器）时只显示“引用扫描不完整/不可用”，不发布无引用估算；附件目录读不全时 `attachments.complete=false`，页面显示“附件统计不完整”。本版本只读，不删除任何附件。
+- 只读附件回收预览计划：`POST /reclaim/preview` 会 flush 会话、要求回收站静止、完整扫描并校验每个已存/回收站日志的根覆盖，然后写 `<DSH_HOME>/.session-trash/reclaim/plan.json`；`GET /reclaim/plan` 读取摘要，`POST /reclaim/cancel` 删除计划。计划 15 分钟过期，**不删除附件**。
+- 引用扫描返回 `fingerprint` 和逐文件 `files` 元数据，并支持 `force` 绕过 per-file 缓存；附件索引抽到共享模块，同时提供哈希别名和 mtime，供计划使用。
 
 ### Changed
 
-- 附件统计改为按内容哈希索引，`files/<hash>/<name>` 与 `file-objects/<hash>` 不再重复计算；不符合已知布局的文件计入 `unclassifiedBytes`。
+- 附件统计改为按内容哈希索引，`files/<hash>/<name>` 与 `file-objects/<hash>` 不再重复计算；不符合已知布局的文件计入 `unclassifiedBytes`。存储统计和回收计划复用同一份附件索引。
 - README 增加引用扫描、Node zstd 依赖和“只读不删”的说明。
 
 ### Tests
 
 - 覆盖多帧 zstd 解码、撕裂尾部、损坏日志、不可读目录、回收站日志、缓存复用、引用/无引用拆分、扫描不完整时不给孤儿估算，以及页面扫描状态文案。
+- 覆盖回收计划的 24h 年龄、引用过滤、missing/TRASH_BUSY/SCAN_INCOMPLETE/ROOTS_INCOMPLETE、计划过期与取消、HTTP 路由鉴权和 e2e 的真实 Host 预览。
 - 修复 `createTrashId` 测试跨秒边界时偶发失败：改为校验时间前缀不递减，而不是要求两次调用落在同一秒。
 
 ## [0.7.0] - 2026-11-14

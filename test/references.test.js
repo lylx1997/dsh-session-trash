@@ -49,6 +49,8 @@ test('the reference scan covers live and trashed logs', { skip: !canCompress }, 
   assert.equal(scan.scannedFiles, 2)
   assert.equal(scan.failedFiles, 0)
   assert.equal(scan.tornFiles, 0)
+  assert.equal(scan.files.length, 2)
+  assert.match(scan.fingerprint, /^sha256:[0-9a-f]{64}$/)
   assert.deepEqual([...scan.refs].sort(), [a, b, c].sort())
   await fs.rm(home, { recursive: true, force: true })
 })
@@ -62,7 +64,8 @@ test('the scan reuses cached logs and notices an appended frame', { skip: !canCo
   await writeLog(log, [eventWith(a)])
 
   const scanner = createReferenceScanner({ home, logger })
-  assert.deepEqual([...((await scanner.scan()).refs)], [a])
+  const firstScan = await scanner.scan()
+  assert.deepEqual([...firstScan.refs], [a])
 
   await new Promise((resolve) => setTimeout(resolve, 10))
   await fs.appendFile(log, zlib.zstdCompressSync(Buffer.from(eventWith(b))))
@@ -70,6 +73,7 @@ test('the scan reuses cached logs and notices an appended frame', { skip: !canCo
   const updated = await scanner.scan()
   assert.equal(updated.status, 'complete')
   assert.deepEqual([...updated.refs].sort(), [a, b].sort())
+  assert.notEqual(updated.fingerprint, firstScan.fingerprint)
   await fs.rm(home, { recursive: true, force: true })
 })
 

@@ -159,6 +159,9 @@ function expectedRoutes() {
     'reveal',
     'cleanup',
     'rebuild',
+    'reclaim/preview',
+    'reclaim/plan',
+    'reclaim/cancel',
   ].map((name) => `/plugins/dsh-session-trash/api/${name}`)
 }
 

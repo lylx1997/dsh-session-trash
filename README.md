@@ -217,7 +217,7 @@ npm 安装的插件在「插件」页打开「会话回收站」的详情，展�
 
 `/state` 的 `storage` 块给出本机会话数据的存储分解：`sessionLogs`（已存会话日志）、`trashLogs`（回收站日志）、`attachments`（附件对象）、`attachmentCache`（可再生请求缓存）、`projectionCache`（投影缓存记录数与 `sweepableBytes`）以及 `totalBytes`。
 
-`attachments` 带 `files`、`bytes`、`complete`、`referencedBytes`、`orphanBytes`、`unclassifiedBytes` 和 `scan`。每次 `/state` 都会对账，首次会完整解压日志：只读扫描所有会话日志（包括回收站里的日志）中的 `sha256` 引用，和 `attachments/v1` 的对象哈希对比；扫描完成后才给 `referencedBytes`/`orphanBytes`，否则两者都是 `null`，`scan.status` 为 `partial` 或 `unavailable`。`complete` 为 `false` 表示附件目录没读全，同样不给无引用估算。扫描按文件大小和 mtime 缓存，后续请求只做 stat，不重复解压。
+`attachments` 带 `files`、`bytes`、`complete`、`referencedBytes`、`orphanBytes`、`eligibleOrphanBytes`、`unclassifiedBytes` 和 `scan`。`eligibleOrphanBytes` 只统计已满 24 小时的无引用对象，页面只在它大于 0 时显示「清理无引用附件…」入口。每次 `/state` 都会对账，首次会完整解压日志：只读扫描所有会话日志（包括回收站里的日志）中的 `sha256` 引用，和 `attachments/v1` 的对象哈希对比；扫描完成后才给 `referencedBytes`/`orphanBytes`，否则两者都是 `null`，`scan.status` 为 `partial` 或 `unavailable`。`complete` 为 `false` 表示附件目录没读全，同样不给无引用估算。扫描按文件大小和 mtime 缓存，后续请求只做 stat，不重复解压。
 
 扫描本身只读；附件回收在 `/reclaim` 中执行，需要先预览、再输入确认短语，删除不可恢复。Node 运行时没有 zstd 解码器（约 Node 22.15 以前）时 `scan.status` 为 `unavailable`，页面只显示附件总量。
 
@@ -257,7 +257,7 @@ npm 安装的插件在「插件」页打开「会话回收站」的详情，展�
 
 ### 附件里的「无引用」是怎么算的
 
-插件只读扫描 `sessions/` 和回收站对象里的会话日志，收集其中出现的 `sha256` 附件 ID，再和 `attachments/v1` 里的对象哈希对比：没有任何会话引用的对象计入 `orphanBytes`。同一张图被多个会话共享时，只要还有一个会话引用就算有引用。扫描不完整时页面显示「引用扫描不完整」，不会给出无引用估算。确认清理后会重新扫描并校验日志指纹，只删除超过 24 小时、仍无引用的对象。
+插件只读扫描 `sessions/` 和回收站对象里的会话日志，收集其中出现的 `sha256` 附件 ID，再和 `attachments/v1` 里的对象哈希对比：没有任何会话引用的对象计入 `orphanBytes`。同一张图被多个会话共享时，只要还有一个会话引用就算有引用。扫描不完整时页面显示「引用扫描不完整」，不会给出无引用估算。`orphanBytes` 是无引用总量；`eligibleOrphanBytes` 只含已满 24 小时、当前可清理的部分。确认清理后会重新扫描并校验日志指纹，只删除超过 24 小时、仍无引用的对象。
 
 这个判断只看会话日志：尚未落盘的粘贴、上传暂存区里的文件、以及第三方记忆/索引插件另行保存的副本都不在引用集合里，所以无引用数字是偏保守的估算。执行删除前会重新扫描并校验，对象还必须超过 24 小时。
 

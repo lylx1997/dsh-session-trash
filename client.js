@@ -2817,7 +2817,7 @@ window.__ModuleLoader__.load({
           storage !== null &&
           storage.attachments?.complete === true &&
           storage.attachments?.scan?.status === 'complete' &&
-          Number(storage.attachments?.orphanBytes) > 0
+          Number(storage.attachments?.eligibleOrphanBytes) > 0
         const storageLine =
           storage === null || !(Number(storage.totalBytes) > 0)
             ? null

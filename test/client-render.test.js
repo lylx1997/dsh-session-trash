@@ -593,6 +593,7 @@ test('the page shows the storage breakdown and labels row bytes as session logs'
       bytes: 6 * 1024 * 1024,
       referencedBytes: 2 * 1024 * 1024,
       orphanBytes: 4 * 1024 * 1024,
+      eligibleOrphanBytes: 4 * 1024 * 1024,
       unclassifiedBytes: 0,
       scan: { status: 'complete', at: Date.now(), scannedFiles: 3, failedFiles: 0, tornFiles: 0 },
     },
@@ -630,6 +631,7 @@ test('the storage line reports an incomplete reference scan without a guessed nu
       bytes: 6 * 1024 * 1024,
       referencedBytes: null,
       orphanBytes: null,
+      eligibleOrphanBytes: null,
       unclassifiedBytes: 0,
       scan: { status: 'partial', at: Date.now(), scannedFiles: 3, failedFiles: 1, tornFiles: 0 },
     },
@@ -658,6 +660,7 @@ test('the storage line reports incomplete attachment stats without a guessed num
       complete: false,
       referencedBytes: null,
       orphanBytes: null,
+      eligibleOrphanBytes: null,
       unclassifiedBytes: 0,
       scan: { status: 'complete', at: Date.now(), scannedFiles: 3, failedFiles: 0, tornFiles: 0 },
     },
@@ -670,6 +673,34 @@ test('the storage line reports incomplete attachment stats without a guessed num
   const storageText = textContent(elementByClass(tree, 'dsh-trash__storage'))
   assert.ok(storageText.includes('附件 6 MB（附件统计不完整）'))
   assert.equal(storageText.includes('无引用'), false)
+})
+
+test('the storage line hides the reclaim entry when every orphan is too young', async () => {
+  const { factory, mini } = await loadModule()
+  const payload = statePayload()
+  payload.storage = {
+    measuredAt: Date.now(),
+    totalBytes: 9 * 1024 * 1024,
+    sessionLogs: { count: 1, bytes: 1024 * 1024 },
+    trashLogs: { count: 1, bytes: 1024 },
+    attachments: {
+      files: 2,
+      bytes: 6 * 1024 * 1024,
+      complete: true,
+      referencedBytes: 5 * 1024 * 1024,
+      orphanBytes: 184 * 1024,
+      eligibleOrphanBytes: 0,
+      unclassifiedBytes: 0,
+      scan: { status: 'complete', at: Date.now(), scannedFiles: 2, failedFiles: 0, failedDirs: 0, tornFiles: 0 },
+    },
+    attachmentCache: { files: 0, bytes: 0 },
+    projectionCache: { records: 0, bytes: 0, sweepableRecords: 0, sweepableBytes: 0 },
+  }
+  const client = createClient(factory, mini, payload)
+  const section = client.slots.find((entry) => entry.definition.name === 'settings.section')
+  const tree = await mini.settle(section.component)
+  assert.equal(buttonByText(tree, '清理无引用附件…'), undefined)
+  assert.ok(textContent(elementByClass(tree, 'dsh-trash__storage')).includes('184 KB'))
 })
 
 test('the storage line opens the reclaim dialog when an eligible orphan total exists', async () => {
@@ -686,6 +717,7 @@ test('the storage line opens the reclaim dialog when an eligible orphan total ex
       complete: true,
       referencedBytes: 5 * 1024 * 1024,
       orphanBytes: 1024 * 1024,
+      eligibleOrphanBytes: 1024 * 1024,
       unclassifiedBytes: 0,
       scan: { status: 'complete', at: Date.now(), scannedFiles: 2, failedFiles: 0, failedDirs: 0, tornFiles: 0 },
     },

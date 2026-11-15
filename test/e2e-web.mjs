@@ -664,6 +664,7 @@ try {
   assert.equal(initial.body.storage.attachments.scan.status, 'complete')
   assert.equal(initial.body.storage.attachments.referencedBytes, 0)
   assert.equal(initial.body.storage.attachments.orphanBytes, 0)
+  assert.equal(initial.body.storage.attachments.eligibleOrphanBytes, 0)
   const bootResponse = await fetch(`${api.base}/`, {
     headers: { cookie: api.cookie },
     signal: AbortSignal.timeout(15_000),

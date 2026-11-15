@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-15
+
+### Changed
+
+- `/state.storage.attachments` 增加 `eligibleOrphanBytes`，只统计已满 24 小时的无引用对象；「清理无引用附件…」入口改为只在它大于 0 时显示，避免只剩年轻无引用对象时入口出现但预览为空。
+
+### Tests
+
+- 覆盖 `eligibleOrphanBytes` 的 24 小时筛选、年轻无引用对象不显示清理入口，以及扫描不完整时三者都为 `null`。
+
 ## [0.8.0] - 2026-11-15
 
 ### Added
@@ -194,6 +204,7 @@
 
 - 回收站工具栏的「永久删除全部」与二次确认；`missing` 记录只移出索引，不删除会话文件。
 
+[0.8.1]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.6.9...v0.7.0
 [0.6.9]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.6.8...v0.6.9

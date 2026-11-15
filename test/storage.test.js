@@ -84,6 +84,7 @@ test('storage stats measure logs, attachments, caches, and sweepable projection 
     complete: true,
     referencedBytes: null,
     orphanBytes: null,
+    eligibleOrphanBytes: null,
     unclassifiedBytes: 0,
     scan: { status: 'unavailable', reason: 'no-scanner' },
   })
@@ -120,16 +121,20 @@ test('storage stats never claim sweepable records when session listing fails', a
   await fs.rm(home, { recursive: true, force: true })
 })
 
-test('storage stats split referenced and unreferenced attachment bytes', async () => {
+test('storage stats split referenced, unreferenced, and eligible attachment bytes', async () => {
   const home = await createTempDir()
   const logger = createLogger()
   const objects = path.join(home, 'attachments', 'v1', 'objects')
   const a = 'a'.repeat(64)
   const b = 'b'.repeat(64)
   const c = 'c'.repeat(64)
+  const d = 'd'.repeat(64)
+  const old = new Date(Date.now() - 25 * 86_400_000)
   await writeBytes(path.join(objects, 'aa', a), 100)
   await writeBytes(path.join(objects, 'bb', b), 50)
   await writeBytes(path.join(objects, 'cc', c), 25)
+  await writeBytes(path.join(objects, 'dd', d), 15)
+  await fs.utimes(path.join(objects, 'cc', c), old, old)
 
   const ctx = {
     sessionPersistence: { async list() { return [] } },
@@ -149,11 +154,12 @@ test('storage stats split referenced and unreferenced attachment bytes', async (
   }
   const snapshot = await createStorageStats({ ctx, home, logger, references }).snapshot()
 
-  assert.equal(snapshot.attachments.files, 3)
-  assert.equal(snapshot.attachments.bytes, 175)
+  assert.equal(snapshot.attachments.files, 4)
+  assert.equal(snapshot.attachments.bytes, 190)
   assert.equal(snapshot.attachments.complete, true)
   assert.equal(snapshot.attachments.referencedBytes, 150)
-  assert.equal(snapshot.attachments.orphanBytes, 25)
+  assert.equal(snapshot.attachments.orphanBytes, 40)
+  assert.equal(snapshot.attachments.eligibleOrphanBytes, 25)
   assert.equal(snapshot.attachments.unclassifiedBytes, 0)
   assert.equal(snapshot.attachments.scan.status, 'complete')
   assert.equal(snapshot.attachments.scan.scannedFiles, 1)
@@ -192,6 +198,7 @@ test('an incomplete reference scan never publishes an orphan estimate', async ()
   assert.equal(snapshot.attachments.unclassifiedBytes, 10)
   assert.equal(snapshot.attachments.referencedBytes, null)
   assert.equal(snapshot.attachments.orphanBytes, null)
+  assert.equal(snapshot.attachments.eligibleOrphanBytes, null)
   assert.equal(snapshot.attachments.scan.status, 'partial')
   assert.equal(snapshot.attachments.scan.reason, 'corrupt-log')
   await fs.rm(home, { recursive: true, force: true })
@@ -230,6 +237,7 @@ test('an unreadable attachment store suppresses the orphan estimate', async (t) 
     assert.equal(snapshot.attachments.complete, false)
     assert.equal(snapshot.attachments.referencedBytes, null)
     assert.equal(snapshot.attachments.orphanBytes, null)
+    assert.equal(snapshot.attachments.eligibleOrphanBytes, null)
   } finally {
     await fs.chmod(locked, 0o700).catch(() => {})
     await fs.rm(home, { recursive: true, force: true })
@@ -252,6 +260,7 @@ test('storage stats are zero when every measured root is absent', async () => {
     complete: true,
     referencedBytes: null,
     orphanBytes: null,
+    eligibleOrphanBytes: null,
     unclassifiedBytes: 0,
     scan: { status: 'unavailable', reason: 'no-scanner' },
   })

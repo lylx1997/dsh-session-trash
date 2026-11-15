@@ -268,6 +268,7 @@ test('the reclaim dialog previews, requires the phrase, and deletes', async () =
       complete: true,
       referencedBytes: 5 * 1024 * 1024,
       orphanBytes: 1024 * 1024,
+      eligibleOrphanBytes: 1024 * 1024,
       unclassifiedBytes: 0,
       scan: { status: 'complete', at: Date.now(), scannedFiles: 2, failedFiles: 0, failedDirs: 0, tornFiles: 0 },
     },

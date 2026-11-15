@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-15
+
 ### Added
 
 - 只读扫描所有会话日志（含回收站对象）里的附件引用，`/state.storage.attachments` 增加 `referencedBytes`、`orphanBytes`、`unclassifiedBytes` 和 `scan`；页面显示“附件 X（其中 Y 无引用）”。
@@ -192,6 +194,7 @@
 
 - 回收站工具栏的「永久删除全部」与二次确认；`missing` 记录只移出索引，不删除会话文件。
 
+[0.8.0]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.6.9...v0.7.0
 [0.6.9]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.6.8...v0.6.9
 [0.6.8]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.6.7...v0.6.8

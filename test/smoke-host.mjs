@@ -228,17 +228,20 @@ async function main() {
   try {
     const { routes, sessionId, sessionDir, logPath, revealedPaths } = await bootPlugin(prepared.home)
 
-    await new Promise((resolve) => setTimeout(resolve, 100))
     assert.deepEqual([...routes.keys()].sort(), expectedRoutes().sort())
-    const index = JSON.parse(await fs.readFile(path.join(prepared.home, '.session-trash', 'trash-index.json'), 'utf8'))
-    assert.equal(index.version, INDEX_VERSION)
-    assert.deepEqual(index.entries, [])
 
+    // Every route awaits the plugin's readiness promise before running, so a
+    // successful /state call proves the index exists. Reading the file before
+    // this point raced store.init() on slow CI workers.
     const state = await call(routes, 'state')
     assert.equal(state.status, 200)
     assert.equal(state.body.version, 1)
     assert.equal(state.body.trashRootDisplay, '$DSH_HOME/.session-trash')
     assert.deepEqual(state.body.entries, [])
+
+    const index = JSON.parse(await fs.readFile(path.join(prepared.home, '.session-trash', 'trash-index.json'), 'utf8'))
+    assert.equal(index.version, INDEX_VERSION)
+    assert.deepEqual(index.entries, [])
     assert.equal(typeof state.body.storage, 'object')
     assert.equal(typeof state.body.storage.totalBytes, 'number')
     assert.equal(typeof state.body.storage.attachments.files, 'number')

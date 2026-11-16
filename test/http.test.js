@@ -173,6 +173,10 @@ function createApi(options = {}) {
       async describe(entry) {
         return { ...entry, expiresAt: 1, canRestore: true, workspaceNowExists: true, requiresOrphanRestore: false }
       },
+      async workspaceStatus() {
+        if (options.workspaceStatus !== undefined) return options.workspaceStatus()
+        return { entries: [] }
+      },
     },
     trashService,
     reclaimService,
@@ -214,6 +218,26 @@ test('GET /state returns the state projection without running a sweep', async ()
   assert.equal(result.body.trashRootDisplay, '$DSH_HOME/.session-trash')
   assert.equal(result.headers['cache-control'], 'no-store')
   assert.deepEqual(calls, [])
+})
+
+test('GET /workspace-status returns the lightweight workspace projection', async () => {
+  const payload = {
+    entries: [
+      {
+        sessionId: 'session-a',
+        workspaceNowExists: true,
+        workspaceRegistered: false,
+        workspaceAvailable: false,
+        workspaceStatus: 'unregistered',
+        requiresOrphanRestore: true,
+      },
+    ],
+  }
+  const { call } = createApi({ workspaceStatus: async () => payload })
+  const result = await call('workspace-status', { method: 'GET', headers: { host: '127.0.0.1:3080' } })
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.body, payload)
+  assert.equal(result.headers['cache-control'], 'no-store')
 })
 
 test('POST /sweep runs the throttled maintenance sweep', async () => {

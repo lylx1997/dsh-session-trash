@@ -148,6 +148,7 @@ async function bootPlugin(home) {
 function expectedRoutes() {
   return [
     'state',
+    'workspace-status',
     'sweep',
     'preflight',
     'trash',

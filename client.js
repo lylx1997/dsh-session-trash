@@ -18,6 +18,10 @@ window.__ModuleLoader__.load({
     const DAY_MS = 86_400_000
     /** Rows per page in the trash list. */
     const PAGE_SIZE = 50
+    /** How often the page re-checks workspace availability while visible. */
+    const WORKSPACE_POLL_MS = 10_000
+    /** Hard budget for one lightweight workspace probe. */
+    const WORKSPACE_POLL_TIMEOUT_MS = 5_000
     /** A row counts as “expiring soon” from this many days before expiry. */
     const EXPIRING_DAYS = 3
     /** Filter identifiers in their sidebar order. */
@@ -199,8 +203,8 @@ window.__ModuleLoader__.load({
       memberSubagent: '子会话',
       filterLabel: '筛选回收站',
       filterAll: '全部',
-      filterWorkspaceExists: '工作区仍存在',
-      filterWorkspaceMissing: '工作区缺失',
+      filterWorkspaceExists: '可恢复回工作区',
+      filterWorkspaceMissing: '需孤儿恢复',
       filterExpiring: '即将到期',
       filterResults: '已筛选出 {count} 个会话',
       noResultsTitle: '没有匹配的会话',
@@ -246,6 +250,7 @@ window.__ModuleLoader__.load({
       expiresOn: '将于 {date} 清理',
       badgeMissing: '文件缺失',
       badgeWorkspaceMissing: '工作区缺失',
+      badgeWorkspaceRemoved: '工作区已移除',
       badgeMigration: '需要迁移',
       badgeExpiring: '即将到期',
       badgeExpired: '已过期',
@@ -266,6 +271,9 @@ window.__ModuleLoader__.load({
       dialogCancel: '取消',
       orphanTitle: '原工作区不存在',
       orphanBody: '「{path}」已不存在。恢复为孤儿会话后，会话会出现在「未分组」，不会自动创建目录。',
+      orphanRemovedTitle: '原工作区已移除',
+      orphanRemovedBody:
+        '「{path}」仍在磁盘上，但已不在 DSH 的工作区列表中，无法把会话挂回原工作区。恢复为孤儿会话后，会话会出现在「未分组」，不会改动该目录。',
       orphanConfirm: '恢复为孤儿会话',
       purgeTitle: '永久删除「{title}」的会话日志？',
       purgeBody: '此操作不可撤销。会话日志和投影缓存会一并删除；附件和图片会保留，搜索索引会在下次搜索时自动剔除该会话。',
@@ -340,6 +348,7 @@ window.__ModuleLoader__.load({
       errorTrashMissing: '回收站中的会话日志已缺失。',
       errorRestoreTarget: '原位置已有同名目录，无法恢复。',
       errorWorkspaceMissing: '原工作区目录已不存在，暂时无法普通恢复。',
+      errorWorkspaceUnregistered: '原工作区已从 DSH 中移除，无法直接恢复；请改用「恢复为孤儿会话」。',
       errorRestoreVerify: '恢复后会话存储不可见，已回滚。',
       errorIndexCorrupt: '回收站索引损坏，已进入保护模式。',
       errorIndexOk: '回收站索引可正常读取，无需重建。',
@@ -416,8 +425,8 @@ window.__ModuleLoader__.load({
       memberSubagent: 'Sub-session',
       filterLabel: 'Filter the trash',
       filterAll: 'All',
-      filterWorkspaceExists: 'Workspace exists',
-      filterWorkspaceMissing: 'Workspace missing',
+      filterWorkspaceExists: 'Restorable to workspace',
+      filterWorkspaceMissing: 'Orphan restore only',
       filterExpiring: 'Expiring soon',
       filterResults: '{count} sessions shown',
       noResultsTitle: 'No matching sessions',
@@ -463,6 +472,7 @@ window.__ModuleLoader__.load({
       expiresOn: 'Auto-deletes on {date}',
       badgeMissing: 'Log missing',
       badgeWorkspaceMissing: 'Workspace missing',
+      badgeWorkspaceRemoved: 'Workspace removed',
       badgeMigration: 'Migration required',
       badgeExpiring: 'Expiring soon',
       badgeExpired: 'Expired',
@@ -483,6 +493,9 @@ window.__ModuleLoader__.load({
       dialogCancel: 'Cancel',
       orphanTitle: 'Original workspace is missing',
       orphanBody: '“{path}” no longer exists. An orphan restore puts the session back under “Ungrouped” and never recreates the directory.',
+      orphanRemovedTitle: 'The original workspace was removed',
+      orphanRemovedBody:
+        '“{path}” is still on disk but no longer appears in the DSH workspace list, so the session cannot rejoin it. An orphan restore returns the session under “Ungrouped” and leaves the directory untouched.',
       orphanConfirm: 'Restore as orphan',
       purgeTitle: 'Permanently delete the session log for “{title}”?',
       purgeBody: 'This cannot be undone. The session log and its projection-cache record are deleted; attachments and images are kept, and the search index drops the session on its next search.',
@@ -557,6 +570,8 @@ window.__ModuleLoader__.load({
       errorTrashMissing: 'The stored session log is missing from the trash.',
       errorRestoreTarget: 'A directory already exists at the original location.',
       errorWorkspaceMissing: 'The original workspace directory no longer exists, so a normal restore is not possible.',
+      errorWorkspaceUnregistered:
+        'The original workspace is no longer registered with DSH, so a direct restore is not possible. Use “Restore as orphan” instead.',
       errorRestoreVerify: 'Session storage could not see the restored session; the move was rolled back.',
       errorIndexCorrupt: 'The trash index is damaged, so protection mode is on.',
       errorIndexOk: 'The trash index is readable and does not need a rebuild.',
@@ -770,6 +785,7 @@ window.__ModuleLoader__.load({
       TRASH_STATE_INVALID: 'errorTrashNotFound',
       RESTORE_TARGET_EXISTS: 'errorRestoreTarget',
       WORKSPACE_MISSING: 'errorWorkspaceMissing',
+      WORKSPACE_UNREGISTERED: 'errorWorkspaceUnregistered',
       RESTORE_VERIFY_FAILED: 'errorRestoreVerify',
       MOVE_VERIFY_FAILED: 'errorRestoreVerify',
       MOVE_CONFLICT: 'errorIo',
@@ -1293,13 +1309,14 @@ window.__ModuleLoader__.load({
      *   kind: 'orphan' | 'purge' | 'forget' | 'purgeAll',
      *   entry?: object,
      *   count?: number,
+     *   reason?: 'missing' | 'unregistered',
      *   t: (key: string) => string,
      *   onCancel: () => void,
      *   onConfirm: () => void,
      * }} props dialog content and handlers.
      * @returns {import('react').ReactElement} the dialog overlay.
      */
-    function ConfirmDialog({ kind, entry, count, t, onCancel, onConfirm, fallbackRef }) {
+    function ConfirmDialog({ kind, entry, count, reason, t, onCancel, onConfirm, fallbackRef }) {
       const dialogRef = React.useRef(null)
       const cancelRef = React.useRef(null)
       const titleId = `dsh-trash-dialog-title-${kind}`
@@ -1348,8 +1365,15 @@ window.__ModuleLoader__.load({
       let body = ''
       let confirmLabel = ''
       if (kind === 'orphan') {
-        heading = t('orphanTitle')
-        body = format(t('orphanBody'), { path: entry.originalCwd ?? t('unknownWorkspace') })
+        // The Host distinguishes a deleted directory from a Workspace that
+        // was removed from DSH while its directory stayed behind.
+        if (reason === 'unregistered') {
+          heading = t('orphanRemovedTitle')
+          body = format(t('orphanRemovedBody'), { path: entry.originalCwd ?? t('unknownWorkspace') })
+        } else {
+          heading = t('orphanTitle')
+          body = format(t('orphanBody'), { path: entry.originalCwd ?? t('unknownWorkspace') })
+        }
         confirmLabel = t('orphanConfirm')
       } else if (kind === 'purge') {
         heading = format(t('purgeTitle'), { title })
@@ -1732,6 +1756,8 @@ window.__ModuleLoader__.load({
         const abortRef = React.useRef(null)
         const searchRef = React.useRef(null)
         const panelRef = React.useRef(null)
+        /** One in-flight lightweight workspace probe at a time. */
+        const workspacePollRef = React.useRef(false)
         /** False once the section unmounts, so late responses stay silent. */
         const aliveRef = React.useRef(true)
         /** Number of writes in flight; the section allows only one at a time. */
@@ -1936,6 +1962,56 @@ window.__ModuleLoader__.load({
             .finally(() => clearTimeout(timer))
         }, [])
 
+        const refreshWorkspaceStatus = React.useCallback(() => {
+          if (!aliveRef.current || workspacePollRef.current || activeWritesRef.current > 0) return
+          workspacePollRef.current = true
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), WORKSPACE_POLL_TIMEOUT_MS)
+          requestJson('workspace-status', { signal: controller.signal })
+            .then(({ ok, payload }) => {
+              if (!aliveRef.current || !ok || payload === null || !Array.isArray(payload.entries)) return
+              const updates = new Map()
+              for (const row of payload.entries) {
+                if (row !== null && typeof row === 'object' && typeof row.sessionId === 'string') {
+                  updates.set(row.sessionId, row)
+                }
+              }
+              setView((previous) => {
+                if (previous.data === null || !Array.isArray(previous.data.entries)) return previous
+                let changed = false
+                const entries = previous.data.entries.map((entry) => {
+                  const update = updates.get(entry.sessionId)
+                  if (update === undefined) return entry
+                  if (
+                    entry.workspaceNowExists === update.workspaceNowExists &&
+                    entry.workspaceRegistered === update.workspaceRegistered &&
+                    entry.workspaceAvailable === update.workspaceAvailable &&
+                    entry.workspaceStatus === update.workspaceStatus &&
+                    entry.requiresOrphanRestore === update.requiresOrphanRestore
+                  ) {
+                    return entry
+                  }
+                  changed = true
+                  return {
+                    ...entry,
+                    workspaceNowExists: update.workspaceNowExists,
+                    workspaceRegistered: update.workspaceRegistered,
+                    workspaceAvailable: update.workspaceAvailable,
+                    workspaceStatus: update.workspaceStatus,
+                    requiresOrphanRestore: update.requiresOrphanRestore,
+                  }
+                })
+                if (!changed) return previous
+                return { ...previous, data: { ...previous.data, entries } }
+              })
+            })
+            .catch(() => {})
+            .finally(() => {
+              clearTimeout(timer)
+              workspacePollRef.current = false
+            })
+        }, [])
+
         React.useEffect(() => {
           load()
           return () => {
@@ -1975,6 +2051,20 @@ window.__ModuleLoader__.load({
             if (typeof window.clearInterval === 'function') window.clearInterval(handle)
           }
         }, [])
+
+        // Workspace removal/deletion happens outside this page. Re-check the
+        // cheap projection while it is visible so badges, filters, and the row
+        // menu do not keep a stale workspace verdict.
+        React.useEffect(() => {
+          if (typeof window === 'undefined' || typeof window.setInterval !== 'function') return undefined
+          const handle = window.setInterval(() => {
+            if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+            refreshWorkspaceStatus()
+          }, WORKSPACE_POLL_MS)
+          return () => {
+            if (typeof window.clearInterval === 'function') window.clearInterval(handle)
+          }
+        }, [refreshWorkspaceStatus])
 
         const data = view.data
         const entries = data !== null && Array.isArray(data.entries) ? [...data.entries] : []
@@ -2052,8 +2142,12 @@ window.__ModuleLoader__.load({
          * @returns {boolean} whether the entry matches the selected filter.
          */
         function matchesFilter(entry, selected = filter) {
-          if (selected === 'workspace-exists') return entry.originalCwd !== null && entry.workspaceNowExists === true
-          if (selected === 'workspace-missing') return entry.originalCwd !== null && entry.workspaceNowExists === false
+          if (selected === 'workspace-exists') {
+            return entry.originalCwd !== null && entry.requiresOrphanRestore !== true
+          }
+          if (selected === 'workspace-missing') {
+            return entry.originalCwd !== null && entry.requiresOrphanRestore === true
+          }
           if (selected === 'expiring') {
             const retention = remaining(entry, locale, now)
             return retention.days !== null && retention.days <= EXPIRING_DAYS
@@ -2251,8 +2345,18 @@ window.__ModuleLoader__.load({
                 outcome.payload !== null && outcome.payload !== undefined && outcome.payload.error !== undefined
                   ? outcome.payload.error.code
                   : undefined
-              if (mode === 'normal' && code === 'WORKSPACE_MISSING') {
-                setDialog({ kind: 'orphan', entry })
+              if (
+                mode === 'normal' &&
+                (code === 'WORKSPACE_MISSING' || code === 'WORKSPACE_UNREGISTERED')
+              ) {
+                // The Host just contradicted the last /state probe, so refresh
+                // the row (badge, reveal, menu) while asking.
+                bumpRevision()
+                setDialog({
+                  kind: 'orphan',
+                  entry,
+                  reason: code === 'WORKSPACE_UNREGISTERED' ? 'unregistered' : 'missing',
+                })
                 return
               }
               fail(entry, describeActionFailure(outcome.status, outcome.payload, t))
@@ -2543,7 +2647,12 @@ window.__ModuleLoader__.load({
             return {
               key: 'orphan',
               label: t('actionRestoreOrphan'),
-              onSelect: () => setDialog({ kind: 'orphan', entry }),
+              // Revalidate through the Host instead of trusting the /state
+              // probe: if the directory came back, a normal restore wins and
+              // the orphan dialog never appears.
+              onSelect: () => {
+                void performRestore(entry, 'normal')
+              },
             }
           }
           if (key === 'reveal') {
@@ -2591,7 +2700,10 @@ window.__ModuleLoader__.load({
          */
         function menuItemsFor(entry) {
           const keys = []
-          if (entry.canRestore === true) keys.push('orphan')
+          // “Orphan” only exists for a workspace that is already gone. For a
+          // live workspace the row button is a normal restore; showing this
+          // entry there only invites the wrong mental model.
+          if (entry.canRestore === true && entry.requiresOrphanRestore === true) keys.push('orphan')
           keys.push('reveal', 'copy')
           if (entry.canForget === true) keys.push('forget')
           if (entry.canPurge === true) keys.push('purge')
@@ -2615,6 +2727,8 @@ window.__ModuleLoader__.load({
           }
           if (entry.originalCwd !== null && entry.workspaceNowExists === false) {
             badges.push({ key: 'workspace', label: t('badgeWorkspaceMissing'), tone: 'warn' })
+          } else if (entry.originalCwd !== null && entry.workspaceStatus === 'unregistered') {
+            badges.push({ key: 'workspace', label: t('badgeWorkspaceRemoved'), tone: 'warn' })
           }
           if (entry.formatStatus === 'migration-required') {
             badges.push({ key: 'migration', label: t('badgeMigration'), tone: 'warn' })
@@ -3207,8 +3321,10 @@ window.__ModuleLoader__.load({
                           'aria-label': format(t('actionRestoreFor'), { title }),
                           disabled: rowBusy || mutationBusy || corrupt || loading,
                           onClick: () => {
-                            if (entry.requiresOrphanRestore === true) setDialog({ kind: 'orphan', entry })
-                            else void performRestore(entry, 'normal')
+                            // Always ask the Host: only it can tell whether the
+                            // workspace is gone right now. A stale /state probe
+                            // must not produce a false “missing” confirmation.
+                            void performRestore(entry, 'normal')
                           },
                         },
                         t('actionRestore'),
@@ -3314,6 +3430,7 @@ window.__ModuleLoader__.load({
                 kind: dialog.kind,
                 entry: dialog.entry,
                 count: dialog.count,
+                reason: dialog.reason,
                 t,
                 onCancel: closeDialog,
                 fallbackRef: panelRef,
@@ -3418,7 +3535,7 @@ window.__ModuleLoader__.load({
                 answer.payload !== null && answer.payload !== undefined && answer.payload.error !== undefined
                   ? answer.payload.error.code
                   : undefined
-              if (code === 'WORKSPACE_MISSING') {
+              if (code === 'WORKSPACE_MISSING' || code === 'WORKSPACE_UNREGISTERED') {
                 answer = await requestJson('restore', {
                   method: 'POST',
                   body: { sessionId, mode: 'orphan' },

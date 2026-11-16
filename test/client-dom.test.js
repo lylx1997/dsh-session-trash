@@ -17,6 +17,7 @@ const STATE_ROUTE = '/plugins/dsh-session-trash/api/state'
 const RESTORE_ROUTE = '/plugins/dsh-session-trash/api/restore'
 const PURGE_ROUTE = '/plugins/dsh-session-trash/api/purge'
 const REVEAL_ROUTE = '/plugins/dsh-session-trash/api/reveal'
+const WORKSPACE_STATUS_ROUTE = '/plugins/dsh-session-trash/api/workspace-status'
 const FORGET_ROUTE = '/plugins/dsh-session-trash/api/forget'
 const RECLAIM_PREVIEW_ROUTE = '/plugins/dsh-session-trash/api/reclaim/preview'
 const RECLAIM_ROUTE = '/plugins/dsh-session-trash/api/reclaim'
@@ -78,13 +79,23 @@ function statePayload(entries = [makeEntry()]) {
  * @param {object} options harness options.
  * @param {object | Function} [options.payload] `/state` answer.
  * @param {Record<string, object | Function>} [options.routes] extra endpoint answers.
+ * @param {object[]} [options.intervals] captures `window.setInterval` registrations.
  * @returns {Promise<object>} the mounted harness.
  */
-async function mount({ payload = statePayload(), routes = {} } = {}) {
+async function mount({ payload = statePayload(), routes = {}, intervals } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://127.0.0.1:3080/',
   })
   const { window } = dom
+  if (Array.isArray(intervals)) {
+    let nextId = 0
+    window.setInterval = (callback, delay) => {
+      nextId += 1
+      intervals.push({ id: nextId, callback, delay })
+      return nextId
+    }
+    window.clearInterval = () => {}
+  }
   Object.defineProperty(globalThis, 'window', { configurable: true, value: window })
   Object.defineProperty(globalThis, 'document', { configurable: true, value: window.document })
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: window.navigator })
@@ -365,7 +376,7 @@ test('the row menu handles arrow keys, Tab, outside clicks, and Escape', async (
     assert.ok(menu !== null)
     assert.equal(trigger.getAttribute('aria-expanded'), 'true')
     const menuItems = [...menu.querySelectorAll('[role="menuitem"]')]
-    assert.ok(menuItems.length >= 4)
+    assert.equal(menuItems.length, 3)
     assert.equal(document.activeElement, menuItems[0])
 
     await act(async () => {
@@ -483,6 +494,192 @@ test('the confirm dialog traps focus, closes on Escape, and restores the opener'
     assert.equal(container.querySelector('[role="dialog"]'), null)
     assert.equal(harness.toasts.at(-1).text, '已永久删除「Alpha」')
     assert.equal(harness.toasts.at(-1).success, true)
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('the orphan confirmation only claims the workspace is missing when the Host says so', async () => {
+  const harness = await mount({
+    payload: statePayload([makeEntry({ workspaceNowExists: false, requiresOrphanRestore: true })]),
+    routes: {
+      [RESTORE_ROUTE]: (options) => {
+        const body = JSON.parse(options.body)
+        if (body.mode === 'normal') {
+          return { status: 409, body: { ok: false, error: { code: 'WORKSPACE_MISSING' } } }
+        }
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            session: { sessionId: 'session-alpha', title: 'Alpha', orphan: true, workspaceReattached: false },
+          },
+        }
+      },
+    },
+  })
+  try {
+    const { container, window, calls, toasts } = harness
+    const trigger = byAriaLabel(container, '「Alpha」的更多操作')
+    await act(async () => {
+      click(window, trigger)
+    })
+    const orphan = [...container.querySelectorAll('[role="menuitem"]')].find(
+      (item) => item.textContent.trim() === '恢复为孤儿会话',
+    )
+    assert.ok(orphan !== undefined)
+    await act(async () => {
+      click(window, orphan)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    const dialog = container.querySelector('[role="dialog"]')
+    assert.ok(dialog !== null)
+    assert.ok(dialog.textContent.includes('原工作区不存在'))
+    assert.ok(dialog.textContent.includes('「/tmp/demo」已不存在'))
+
+    const confirm = [...dialog.querySelectorAll('button')].at(-1)
+    await act(async () => {
+      click(window, confirm)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    assert.equal(container.querySelector('[role="dialog"]'), null)
+    assert.deepEqual(
+      calls.filter((call) => call.pathname === RESTORE_ROUTE).map((call) => JSON.parse(call.options.body).mode),
+      ['normal', 'orphan'],
+    )
+    assert.equal(toasts.at(-1).text, '已恢复为孤儿会话「Alpha」')
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('the row menu does not offer orphan restore while the workspace still exists', async () => {
+  const harness = await mount()
+  try {
+    const { container, window } = harness
+    const trigger = byAriaLabel(container, '「Alpha」的更多操作')
+    await act(async () => {
+      click(window, trigger)
+    })
+    const labels = [...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent.trim())
+    assert.deepEqual(labels, ['在文件管理器中显示', '复制 Session ID', '永久删除'])
+    assert.equal(labels.includes('恢复为孤儿会话'), false)
+    assert.equal(container.querySelector('[role="dialog"]'), null)
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('a workspace removed from DSH uses removed wording and still offers orphan restore', async () => {
+  const harness = await mount({
+    payload: statePayload([
+      makeEntry({
+        originalCwd: '/tmp/beadify',
+        workspaceNowExists: true,
+        workspaceRegistered: false,
+        workspaceAvailable: false,
+        workspaceStatus: 'unregistered',
+        requiresOrphanRestore: true,
+      }),
+    ]),
+    routes: {
+      [RESTORE_ROUTE]: (options) => {
+        const body = JSON.parse(options.body)
+        if (body.mode === 'normal') {
+          return { status: 409, body: { ok: false, error: { code: 'WORKSPACE_UNREGISTERED' } } }
+        }
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            session: { sessionId: 'session-alpha', title: 'Alpha', orphan: true, workspaceReattached: false },
+          },
+        }
+      },
+    },
+  })
+  try {
+    const { container, window, calls, toasts } = harness
+    assert.ok(container.textContent.includes('工作区已移除'))
+    const restore = buttonByText(container, '恢复')
+    assert.ok(restore !== undefined)
+    await act(async () => {
+      click(window, restore)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    const dialog = container.querySelector('[role="dialog"]')
+    assert.ok(dialog !== null)
+    assert.ok(dialog.textContent.includes('原工作区已移除'))
+    assert.ok(dialog.textContent.includes('仍在磁盘上'))
+    assert.equal(dialog.textContent.includes('已不存在'), false)
+
+    const confirm = [...dialog.querySelectorAll('button')].at(-1)
+    await act(async () => {
+      click(window, confirm)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    assert.equal(container.querySelector('[role="dialog"]'), null)
+    assert.deepEqual(
+      calls.filter((call) => call.pathname === RESTORE_ROUTE).map((call) => JSON.parse(call.options.body).mode),
+      ['normal', 'orphan'],
+    )
+    assert.equal(toasts.at(-1).text, '已恢复为孤儿会话「Alpha」')
+  } finally {
+    await harness.dispose()
+  }
+})
+
+test('the visible page refreshes workspace availability without reloading /state', async () => {
+  const intervals = []
+  const harness = await mount({
+    payload: statePayload([
+      makeEntry({
+        workspaceNowExists: true,
+        workspaceRegistered: true,
+        workspaceAvailable: true,
+        workspaceStatus: 'available',
+        requiresOrphanRestore: false,
+      }),
+    ]),
+    routes: {
+      [WORKSPACE_STATUS_ROUTE]: {
+        status: 200,
+        body: {
+          entries: [
+            {
+              sessionId: 'session-alpha',
+              workspaceNowExists: true,
+              workspaceRegistered: false,
+              workspaceAvailable: false,
+              workspaceStatus: 'unregistered',
+              requiresOrphanRestore: true,
+            },
+          ],
+        },
+      },
+    },
+    intervals,
+  })
+  try {
+    const { container, window, document, calls } = harness
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    assert.equal(container.textContent.includes('工作区已移除'), false)
+
+    const poll = intervals.find((entry) => entry.delay === 10000)
+    assert.ok(poll !== undefined)
+    await act(async () => {
+      poll.callback()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    assert.ok(container.textContent.includes('工作区已移除'))
+
+    const trigger = byAriaLabel(container, '「Alpha」的更多操作')
+    await act(async () => {
+      click(window, trigger)
+    })
+    const labels = [...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent.trim())
+    assert.ok(labels.includes('恢复为孤儿会话'))
+    assert.equal(calls.filter((call) => call.pathname === STATE_ROUTE).length, 1)
   } finally {
     await harness.dispose()
   }

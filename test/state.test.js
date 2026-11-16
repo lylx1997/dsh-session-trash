@@ -31,7 +31,7 @@ function entry(sessionId, cwd, extra = {}) {
  * @param {(entries: object[]) => Promise<object | null>} [storageSnapshot] storage measurement.
  * @returns {object} the state service.
  */
-function createService(entries, probe, storageSnapshot) {
+function createService(entries, probe, storageSnapshot, workspaceRegistry = () => undefined) {
   const store = {
     entries: () => entries,
     describe: () => ({ status: 'ok', updatedAt: 1, error: null, unindexed: 0 }),
@@ -41,6 +41,7 @@ function createService(entries, probe, storageSnapshot) {
     config,
     trashRootDisplay: '$DSH_HOME/.session-trash',
     directoryExists: probe,
+    workspaceRegistry,
     ...(storageSnapshot === undefined ? {} : { storageSnapshot }),
   })
 }
@@ -97,4 +98,57 @@ test('the wire entry carries a stable code next to the raw diagnostic', async ()
   const described = await service.describe(missing)
   assert.equal(described.lastErrorCode, 'TRASH_COPY_MISSING')
   assert.equal(described.lastError, 'The trash copy of this session is missing.')
+})
+
+test('a workspace removed from DSH is unavailable even when its directory remains', async () => {
+  const entries = [
+    entry('a', '/work/a', { originalWorkspaceId: 'ws-a' }),
+    entry('b', '/work/b', { originalWorkspaceId: null }),
+  ]
+  const service = createService(entries, async () => true, undefined, () => ({ list: () => [] }))
+  const snapshot = await service.snapshot()
+  const [removed, ungrouped] = snapshot.entries
+
+  assert.equal(removed.workspaceNowExists, true)
+  assert.equal(removed.workspaceRegistered, false)
+  assert.equal(removed.workspaceStatus, 'unregistered')
+  assert.equal(removed.requiresOrphanRestore, true)
+
+  assert.equal(ungrouped.workspaceNowExists, true)
+  assert.equal(ungrouped.workspaceRegistered, null)
+  assert.equal(ungrouped.workspaceStatus, 'available')
+  assert.equal(ungrouped.requiresOrphanRestore, false)
+
+  const status = await service.workspaceStatus()
+  assert.deepEqual(status.entries[0], {
+    sessionId: 'a',
+    workspaceNowExists: true,
+    workspaceRegistered: false,
+    workspaceAvailable: false,
+    workspaceStatus: 'unregistered',
+    requiresOrphanRestore: true,
+  })
+  assert.equal(status.entries[1].requiresOrphanRestore, false)
+})
+
+test('a registered workspace keeps a directory-backed entry directly restorable', async () => {
+  const entries = [entry('a', '/work/a', { originalWorkspaceId: 'ws-a' })]
+  const service = createService(entries, async () => true, undefined, () => ({
+    list: () => [{ id: 'ws-a', path: '/work/a', sessionIds: ['a'] }],
+  }))
+  const snapshot = await service.snapshot()
+  assert.equal(snapshot.entries[0].workspaceRegistered, true)
+  assert.equal(snapshot.entries[0].workspaceAvailable, true)
+  assert.equal(snapshot.entries[0].workspaceStatus, 'available')
+  assert.equal(snapshot.entries[0].requiresOrphanRestore, false)
+})
+
+test('an absent workspace directory stays the missing case', async () => {
+  const entries = [entry('a', '/work/gone', { originalWorkspaceId: 'ws-a' })]
+  const service = createService(entries, async () => false, undefined, () => ({ list: () => [] }))
+  const snapshot = await service.snapshot()
+  assert.equal(snapshot.entries[0].workspaceNowExists, false)
+  assert.equal(snapshot.entries[0].workspaceRegistered, null)
+  assert.equal(snapshot.entries[0].workspaceStatus, 'missing')
+  assert.equal(snapshot.entries[0].requiresOrphanRestore, true)
 })

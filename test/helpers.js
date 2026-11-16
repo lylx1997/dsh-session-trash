@@ -353,6 +353,7 @@ export async function createHarness(options = {}) {
     store,
     config,
     trashRootDisplay: '$DSH_HOME/.session-trash',
+    workspaceRegistry: () => workspaces,
     ...(options.cleanup === undefined ? {} : { cleanup: options.cleanup }),
   })
   const service = createTrashService({

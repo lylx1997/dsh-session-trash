@@ -593,7 +593,7 @@ test('the trash page renders rows, badges, and row actions from /state', async (
   const menus = actionMenus(tree)
   assert.equal(menus.length, 1)
   const labels = menus[0].props.items.map((item) => item.label)
-  assert.deepEqual(labels, ['恢复为孤儿会话', '在文件管理器中显示', '复制 Session ID', '永久删除'])
+  assert.deepEqual(labels, ['在文件管理器中显示', '复制 Session ID', '永久删除'])
   assert.equal(menus[0].props.items.at(-1).danger, true)
   assert.equal(menus[0].props.label, '「Alpha」的更多操作')
 })
@@ -799,6 +799,13 @@ test('a row shows the recorded workspace title and keeps the full path as the to
   assert.equal(workspaces[0].props.title, '/work/real/deep')
   assert.equal(workspaces[1].props.title, '/work/legacy')
   assert.equal(workspaces[2].props.title, undefined)
+
+  const menus = actionMenus(tree)
+  assert.equal(menus[2].props.items.some((item) => item.key === 'orphan'), false)
+  assert.deepEqual(
+    menus[2].props.items.map((item) => item.label),
+    ['在文件管理器中显示', '复制 Session ID', '永久删除'],
+  )
 })
 
 test('an older payload without workspace or member titles still renders', async () => {
@@ -943,8 +950,17 @@ test('a missing workspace opens the orphan dialog before restoring', async () =>
     mini,
     statePayload({ workspaceNowExists: false, requiresOrphanRestore: true }),
     {
-      [RESTORE_ROUTE]: {
-        body: { ok: true, session: { sessionId: 'session-alpha', title: 'Alpha', orphan: true, workspaceReattached: false } },
+      [RESTORE_ROUTE]: (options) => {
+        const body = JSON.parse(options.body)
+        if (body.mode === 'normal') {
+          return { status: 409, body: { ok: false, error: { code: 'WORKSPACE_MISSING' } } }
+        }
+        return {
+          body: {
+            ok: true,
+            session: { sessionId: 'session-alpha', title: 'Alpha', orphan: true, workspaceReattached: false },
+          },
+        }
       },
     },
   )
@@ -959,12 +975,87 @@ test('a missing workspace opens the orphan dialog before restoring', async () =>
   const dialog = dialogOfKind(afterClick, 'orphan')
   assert.ok(dialog !== undefined)
   assert.ok(dialog.props.entry.originalCwd === '/tmp/demo')
-  assert.equal(client.calls.filter((entry) => entry.pathname === RESTORE_ROUTE).length, 0)
+  // The missing claim comes from the Host checking the directory during a
+  // normal restore, not from the cached /state probe.
+  const attempts = client.calls.filter((entry) => entry.pathname === RESTORE_ROUTE)
+  assert.equal(attempts.length, 1)
+  assert.deepEqual(JSON.parse(attempts[0].options.body), { sessionId: 'session-alpha', mode: 'normal' })
 
   dialog.props.onConfirm()
   await new Promise((resolve) => setTimeout(resolve, 20))
+  const restored = client.calls.filter((entry) => entry.pathname === RESTORE_ROUTE)
+  assert.deepEqual(JSON.parse(restored.at(-1).options.body), { sessionId: 'session-alpha', mode: 'orphan' })
+  assert.equal(client.toasts.at(-1).text, '已恢复为孤儿会话「Alpha」')
+})
+
+test('a stale missing-workspace probe does not force an orphan restore', async () => {
+  const { factory, mini } = await loadModule()
+  const client = createClient(
+    factory,
+    mini,
+    statePayload({ workspaceNowExists: false, requiresOrphanRestore: true }),
+    {
+      [RESTORE_ROUTE]: {
+        body: { ok: true, session: { sessionId: 'session-alpha', title: 'Alpha', orphan: false, workspaceReattached: true } },
+      },
+    },
+  )
+  const section = client.slots.find((entry) => entry.definition.name === 'settings.section')
+  const tree = await mini.settle(section.component)
+  buttonByText(tree, '恢复').props.onClick()
+  const afterClick = await mini.settle(section.component)
+  assert.equal(dialogOfKind(afterClick, 'orphan'), undefined)
   const call = client.calls.find((entry) => entry.pathname === RESTORE_ROUTE)
-  assert.deepEqual(JSON.parse(call.options.body), { sessionId: 'session-alpha', mode: 'orphan' })
+  assert.deepEqual(JSON.parse(call.options.body), { sessionId: 'session-alpha', mode: 'normal' })
+  assert.equal(client.toasts.at(-1).text, '已恢复「Alpha」')
+})
+
+test('an existing workspace does not offer the orphan restore entry', async () => {
+  const { factory, mini } = await loadModule()
+  const client = createClient(factory, mini, statePayload())
+  const section = client.slots.find((entry) => entry.definition.name === 'settings.section')
+  const tree = await mini.settle(section.component)
+  const items = actionMenus(tree)[0].props.items
+  assert.equal(items.some((item) => item.key === 'orphan'), false)
+  assert.equal(client.calls.filter((entry) => entry.pathname === RESTORE_ROUTE).length, 0)
+})
+
+test('a missing workspace offers the orphan entry and still revalidates through the Host', async () => {
+  const { factory, mini } = await loadModule()
+  const client = createClient(
+    factory,
+    mini,
+    statePayload({ workspaceNowExists: false, requiresOrphanRestore: true }),
+    {
+      [RESTORE_ROUTE]: (options) => {
+        const body = JSON.parse(options.body)
+        if (body.mode === 'normal') {
+          return { status: 409, body: { ok: false, error: { code: 'WORKSPACE_MISSING' } } }
+        }
+        return {
+          body: {
+            ok: true,
+            session: { sessionId: 'session-alpha', title: 'Alpha', orphan: true, workspaceReattached: false },
+          },
+        }
+      },
+    },
+  )
+  const section = client.slots.find((entry) => entry.definition.name === 'settings.section')
+  const tree = await mini.settle(section.component)
+  const orphan = actionMenus(tree)[0].props.items.find((item) => item.key === 'orphan')
+  assert.ok(orphan !== undefined)
+  orphan.onSelect()
+  const afterSelect = await mini.settle(section.component)
+  const dialog = dialogOfKind(afterSelect, 'orphan')
+  assert.ok(dialog !== undefined)
+  const attempts = client.calls.filter((entry) => entry.pathname === RESTORE_ROUTE)
+  assert.deepEqual(JSON.parse(attempts[0].options.body), { sessionId: 'session-alpha', mode: 'normal' })
+
+  dialog.props.onConfirm()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  const restored = client.calls.filter((entry) => entry.pathname === RESTORE_ROUTE)
+  assert.deepEqual(JSON.parse(restored.at(-1).options.body), { sessionId: 'session-alpha', mode: 'orphan' })
   assert.equal(client.toasts.at(-1).text, '已恢复为孤儿会话「Alpha」')
 })
 
@@ -1257,6 +1348,113 @@ test('workspace and expiry filters narrow the list', async () => {
   assert.deepEqual(rowTitles(tree), ['Alpha', 'Beta', 'Gamma'])
 })
 
+test('workspace filters and badges follow DSH registration, not just the directory', async () => {
+  const { factory, mini } = await loadModule()
+  const now = Date.now()
+  const payload = statePayloadWith([
+    makeEntry({
+      sessionId: 'session-alpha',
+      title: 'Alpha',
+      originalCwd: '/work/live',
+      workspaceNowExists: true,
+      workspaceRegistered: true,
+      workspaceAvailable: true,
+      workspaceStatus: 'available',
+      requiresOrphanRestore: false,
+      expiresAt: now + 20 * DAY,
+      trashedAt: now - 1000,
+    }),
+    makeEntry({
+      sessionId: 'session-beta',
+      title: 'Beta',
+      originalCwd: '/work/beadify',
+      workspaceNowExists: true,
+      workspaceRegistered: false,
+      workspaceAvailable: false,
+      workspaceStatus: 'unregistered',
+      requiresOrphanRestore: true,
+      expiresAt: now + 20 * DAY,
+      trashedAt: now - 2000,
+    }),
+    makeEntry({
+      sessionId: 'session-gamma',
+      title: 'Gamma',
+      originalCwd: '/work/gone',
+      workspaceNowExists: false,
+      workspaceStatus: 'missing',
+      requiresOrphanRestore: true,
+      expiresAt: now + 20 * DAY,
+      trashedAt: now - 3000,
+    }),
+  ])
+  const client = createClient(factory, mini, payload)
+  const section = client.slots.find((entry) => entry.definition.name === 'settings.section')
+  let tree = await mini.settle(section.component)
+  const rows = elementsByClass(tree, 'dsh-trash__row')
+  assert.ok(elementsByClass(rows[1], 'dsh-trash__badge').some((badge) => badge.children.join('') === '工作区已移除'))
+  assert.ok(elementsByClass(rows[2], 'dsh-trash__badge').some((badge) => badge.children.join('') === '工作区缺失'))
+
+  radioByValue(tree, 'workspace-exists').props.onChange()
+  tree = await mini.settle(section.component)
+  assert.deepEqual(rowTitles(tree), ['Alpha'])
+
+  radioByValue(tree, 'workspace-missing').props.onChange()
+  tree = await mini.settle(section.component)
+  assert.deepEqual(rowTitles(tree), ['Beta', 'Gamma'])
+})
+
+test('a workspace removed from DSH opens the removed-workspace confirmation', async () => {
+  const { factory, mini } = await loadModule()
+  const client = createClient(
+    factory,
+    mini,
+    statePayload({
+      originalCwd: '/tmp/beadify',
+      workspaceNowExists: true,
+      workspaceRegistered: false,
+      workspaceAvailable: false,
+      workspaceStatus: 'unregistered',
+      requiresOrphanRestore: true,
+    }),
+    {
+      [RESTORE_ROUTE]: (options) => {
+        const body = JSON.parse(options.body)
+        if (body.mode === 'normal') {
+          return { status: 409, body: { ok: false, error: { code: 'WORKSPACE_UNREGISTERED' } } }
+        }
+        return {
+          body: {
+            ok: true,
+            session: { sessionId: 'session-alpha', title: 'Alpha', orphan: true, workspaceReattached: false },
+          },
+        }
+      },
+    },
+  )
+  const section = client.slots.find((entry) => entry.definition.name === 'settings.section')
+  const tree = await mini.settle(section.component)
+  const menus = actionMenus(tree)
+  assert.ok(menus[0].props.items.some((item) => item.key === 'orphan'))
+  const reveal = menus[0].props.items.find((item) => item.key === 'reveal')
+  assert.equal(reveal.disabled, false)
+
+  buttonByText(tree, '恢复').props.onClick()
+  const afterClick = await mini.settle(section.component)
+  const dialog = dialogOfKind(afterClick, 'orphan')
+  assert.ok(dialog !== undefined)
+  assert.equal(dialog.props.reason, 'unregistered')
+
+  dialog.props.onConfirm()
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.deepEqual(
+    client.calls
+      .filter((entry) => entry.pathname === RESTORE_ROUTE)
+      .map((entry) => JSON.parse(entry.options.body).mode),
+    ['normal', 'orphan'],
+  )
+  assert.equal(client.toasts.at(-1).text, '已恢复为孤儿会话「Alpha」')
+})
+
 test('the list pages 50 rows at a time and returns to page one when searching', async () => {
   const { factory, mini } = await loadModule()
   const now = Date.now()
@@ -1344,7 +1542,7 @@ test('the page exposes accessible names for search, filters, and row actions', a
   assert.equal(group.props['aria-label'], '筛选回收站')
   assert.deepEqual(
     elementsByClass(tree, 'dsh-trash__filterLabel').map((label) => label.children.join('')),
-    ['全部', '工作区仍存在', '工作区缺失', '即将到期'],
+    ['全部', '可恢复回工作区', '需孤儿恢复', '即将到期'],
   )
   assert.equal(radioByValue(tree, 'all').props.checked, true)
 

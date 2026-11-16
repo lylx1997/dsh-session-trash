@@ -149,6 +149,36 @@ test('normal restore reports WORKSPACE_MISSING and leaves the trash object in pl
   await harness.dispose()
 })
 
+test('normal restore refuses a workspace removed from DSH but leaves the directory intact', async () => {
+  const harness = await createHarness()
+  const project = path.join(harness.root, 'project')
+  await fs.mkdir(project)
+  const record = await harness.addSession({ id: 'session-a', cwd: project, title: 'A' })
+  harness.workspaces.add({ id: 'ws-a', path: project, sessionIds: ['session-a'] })
+  const entry = await harness.service.trash('session-a')
+
+  // Deleting a Workspace in DSH removes its registry record; the directory
+  // itself can stay on disk. That is not a normal restore target any more.
+  harness.workspaces.items.length = 0
+
+  const state = await harness.stateService.snapshot()
+  assert.equal(state.entries[0].workspaceNowExists, true)
+  assert.equal(state.entries[0].workspaceRegistered, false)
+  assert.equal(state.entries[0].workspaceStatus, 'unregistered')
+  assert.equal(state.entries[0].requiresOrphanRestore, true)
+
+  await assert.rejects(harness.service.restore('session-a'), trashCode('WORKSPACE_UNREGISTERED'))
+  assert.equal(harness.store.findEntry('session-a')?.state, 'trashed')
+  assert.ok((await fs.stat(path.join(harness.trashRoot, 'objects', entry.trashId))).isDirectory())
+  assert.ok((await fs.stat(project)).isDirectory())
+
+  const result = await harness.service.restore('session-a', 'orphan')
+  assert.equal(result.orphan, true)
+  assert.equal(await fs.readFile(record.logPath, 'utf8'), '{"type":"session/start"}\n')
+  assert.ok((await fs.stat(project)).isDirectory())
+  await harness.dispose()
+})
+
 test('restore refuses an occupied target', async () => {
   const harness = await createHarness()
   const project = path.join(harness.root, 'project')

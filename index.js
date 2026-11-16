@@ -107,6 +107,7 @@ export function apply(ctx, config) {
     trashRootDisplay: paths.display,
     nextSweepAt: () => cleanupService.nextSweepAt(),
     cleanup: () => cleanupService.diagnostics(),
+    workspaceRegistry: () => ctx.get('workspaceRegistry'),
     storageSnapshot: (entries) => storageStats.snapshot({ entries }),
   })
 

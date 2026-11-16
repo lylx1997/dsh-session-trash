@@ -35,7 +35,7 @@ Moving and restoring only touch the session directory; attachments and images st
 - Right-click a cold session in the sidebar and choose "Move to trash". A session with a running turn, job, subagent, or scheduled task cannot be trashed.
 - Hidden subagent children move with their parent and come back with it.
 - When a session cannot be trashed, the menu keeps a labelled explanatory item that opens and states the reason, instead of making the entry disappear.
-- After the move, the shared DSH Toast offers one action: Undo. Undo tries a normal restore first and falls back to an orphan restore when the original workspace is gone.
+- After the move, the shared DSH Toast offers one action: Undo. Undo tries a normal restore first and falls back to an orphan restore when the original workspace directory is gone or the workspace was removed from DSH.
 
 ### The Trash page
 
@@ -45,8 +45,8 @@ Settings, then Trash.
 - A line below the toolbar shows this device's session data: logs, attachments, and cache by category, plus the projection-cache bytes the startup sweep can reclaim. For attachments it also shows how many bytes are unreferenced (read-only scan; no file is deleted).
 - Search, filters, and sorting by trashed date / title / size / expiry, with 50 rows per page.
 - An entry with hidden children shows a "N child sessions" badge and expands to list each member with its title, Session ID, and size. Restore and permanent deletion cover the whole tree; there is no partial restore.
-- Row actions are restore, restore as orphan, permanent deletion, removal from the index, copying the Session ID, and revealing the original workspace in Finder or Explorer.
-- Select several entries to restore them as a batch (only rows whose workspace still exists), including a select-all-page checkbox.
+- Row actions are restore, restore as orphan, permanent deletion, removal from the index, copying the Session ID, and revealing the original workspace in Finder or Explorer. "Restore as orphan" appears only when a normal restore cannot return the session to its workspace (the directory is gone or the workspace was removed from DSH); while the workspace is still usable the entry is absent and "Restore" is the action to use.
+- Select several entries to restore them as a batch (only rows that can return to their workspace normally), including a select-all-page checkbox.
 - "Delete all permanently" in the toolbar empties the whole trash after one confirmation, including entries that have not expired.
 
 ### Automatic cleanup
@@ -127,7 +127,7 @@ Start with the pnpm output and the Host log path under **Show install details**.
 
 ## Usage
 
-Right-click a cold session and choose "Move to trash". After the Toast disappears, open the Trash page in Settings and restore it row by row or in a batch, or delete it permanently. When the original workspace directory is gone, the page asks for confirmation and restores the session as an orphan under "Ungrouped".
+Right-click a cold session and choose "Move to trash". After the Toast disappears, open the Trash page in Settings and restore it row by row or in a batch, or delete it permanently. When the original workspace directory is gone or the workspace was removed from DSH, the page asks for confirmation and restores the session as an orphan under "Ungrouped".
 
 To empty the trash at once, use "Delete all permanently" in the toolbar and confirm; entries that have not expired are deleted too.
 
@@ -192,6 +192,7 @@ All routes live under `/plugins/dsh-session-trash/api/` and are registered as ex
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/state` | Config, index state, entries, stats, a storage breakdown, and cleanup diagnostics (read-only; never sweeps) |
+| `GET` | `/workspace-status` | Lightweight workspace projection: directory presence and DSH registration; the page refreshes it every 10 seconds |
 | `POST` | `/sweep` | No body; runs one throttled page-open maintenance sweep; whether expired entries are deleted depends on `enableAutoCleanup` |
 | `POST` | `/preflight` | `{ sessionId }` returns `{ eligible: true, descendants }` or `{ eligible: false, code, message, details? }`; `descendants` is the number of hidden children that move along |
 | `POST` | `/trash` | `{ sessionId }`; moves the whole session tree (parent plus hidden subagent children) and returns `{ ok, entry }` |
@@ -224,7 +225,7 @@ Restore and maintenance refusals include `TRASH_ENTRY_NOT_FOUND`, `TRASH_STATE_I
 
 The scan itself is read-only; reclamation runs through `/reclaim` after a preview and the typed confirmation phrase, and deletion is permanent. Without a zstd decoder in the Node runtime (roughly Node < 22.15), `scan.status` is `unavailable` and the page shows the attachment total only.
 
-`/state` entries gain `subagentCount` (hidden children moved along) and `members` (parent first, each with `sessionId`, `origin`, and `sizeBytes`); `sizeBytes`/`fileCount` cover the whole tree. The `entry` returned by `/trash` uses the same shape. Entries also carry `lastErrorCode` (a stable category the page localizes) and `lastError` (the raw English diagnostic, used only as a tooltip).
+`/state` entries gain `subagentCount` (hidden children moved along) and `members` (parent first, each with `sessionId`, `origin`, and `sizeBytes`); `sizeBytes`/`fileCount` cover the whole tree. The `entry` returned by `/trash` uses the same shape. Entries also carry `lastErrorCode` (a stable category the page localizes) and `lastError` (the raw English diagnostic, used only as a tooltip). Workspace-state fields are `workspaceNowExists` (directory present), `workspaceRegistered` (DSH still registers the workspace), `workspaceAvailable`, and `workspaceStatus` (`available` / `missing` / `unregistered` / `no-workspace` / `unknown`); `requiresOrphanRestore` follows from them.
 
 ## Limitations
 
@@ -239,7 +240,7 @@ The scan itself is read-only; reclamation runs through `/reclaim` after a previe
 - Unindexed objects (object directories whose `meta.json` is damaged or unreadable) are never deleted automatically; the page can only clean empty leftovers that hold no session log, and anything that may contain logs is left for manual inspection.
 - `/state` returns all entry summaries and the storage breakdown in one response. Search, filtering, and paging happen in the Client.
 - Same-origin tabs in the same browser sync index changes through `BroadcastChannel`; different browsers or machines still need a refresh.
-- Batch restore only covers rows whose workspace still exists; entries with a missing workspace need an individual orphan restore.
+- Batch restore only covers rows that can return to their workspace normally; entries whose directory is gone or whose workspace was removed need an individual orphan restore.
 - The desktop apps on Windows and Linux have not been verified manually; CI boots an npm-installed `dsh web` Host, so desktop-shell UI and desktop-only features (such as reveal in the file manager) are still verified on macOS only. On Windows, cases that rely on POSIX permission bits are skipped, and long paths over 260 characters / symlink copying depend on system configuration (the related tests skip themselves when unsupported).
 - macOS path comparison is case-insensitive. On a case-sensitive APFS volume, paths that differ only by case are treated as the same location.
 - Multiple DSH processes sharing one `DSH_HOME` serialize trash operations through `.lock`. The Host retries briefly before reporting `LOCKED`, and the Client retries once automatically; a process paused for more than 10 minutes can lose the lock to another process.
@@ -274,7 +275,11 @@ Only known-layout objects under `attachments/v1` that are older than 24 hours an
 
 ### Where does a restored session go
 
-Back to its original workspace. If that workspace directory no longer exists, choose "Restore as orphan" and the session returns to "Ungrouped"; the workspace directory is not recreated.
+Back to its original workspace. Only when that directory no longer exists, or the workspace was removed from DSH, does the menu offer "Restore as orphan"; the session returns to "Ungrouped", no directory is recreated, and a directory still on disk is left untouched. When the workspace is still usable, use "Restore". While the page is visible it re-checks workspace state every 10 seconds; opening the page, refocusing the window, or using "Refresh" updates it immediately.
+
+### Why did the trash page still say "Workspace exists" after I deleted a workspace
+
+Older releases only checked whether the original directory was present. Deleting a workspace in DSH usually removes its registration but leaves the directory on disk, so it was treated as usable. The page now checks both the directory and the DSH workspace registry: a missing directory shows "Workspace missing", while a directory that no longer belongs to a registered workspace shows "Workspace removed"; both are grouped under "Orphan restore only". The visible page re-checks every 10 seconds, and "Refresh" checks immediately; no DSH restart is needed.
 
 ### Can I keep the trash forever
 

@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-11-16
+
+### Added
+
+- `/state` 条目增加 `workspaceRegistered`、`workspaceAvailable` 和 `workspaceStatus`，同时检查原目录与 DSH 工作区注册表。
+- 新增只读 `GET /workspace-status` 轻量投影；回收站页面在可见时每 10 秒刷新一次工作区状态，不需要重启 DSH。
+
+### Changed
+
+- 筛选「工作区仍存在 / 工作区缺失」改为「可恢复回工作区 / 需孤儿恢复」，行内新增「工作区已移除」徽章；目录还在但工作区已从 DSH 移除的条目现在归入需孤儿恢复。
+- 普通恢复会拒绝工作区已从 DSH 移除的条目并返回 `WORKSPACE_UNREGISTERED`，改为走孤儿恢复确认；Toast 撤销同样会回退到孤儿恢复。
+- 「恢复为孤儿会话」菜单项只在 `requiresOrphanRestore === true` 时出现；会话仍可正常回到工作区时没有这一项，避免误导。
+
+### Fixed
+
+- 从 DSH 删除工作区但目录仍留在磁盘时，不再误判为「工作区仍存在」；页面显示「工作区已移除」并允许孤儿恢复，确认框也不再声称目录已删除。
+- 普通「恢复」和孤儿恢复入口都先向 Host 发起正常恢复，由 Host 现场检查目录和注册表；`/state` 探针过期时不会弹出错误结论，工作区重新出现时直接正常恢复就不弹孤儿确认。
+- 原本没有工作区（`originalCwd` 为空）的会话不显示孤儿恢复入口；缺失确认框只在 Host 返回 `WORKSPACE_MISSING` 后使用「已不存在」文案。
+
+### Tests
+
+- 覆盖目录仍存在但工作区已移除、目录缺失、仍注册三种状态；筛选与徽章按可恢复性而不是目录存在性工作；`WORKSPACE_UNREGISTERED` 阻止普通恢复但允许孤儿恢复。
+- 覆盖页面可见时通过 `/workspace-status` 合并工作区状态而不重载 `/state`，以及缺失/已移除两种孤儿确认文案。
+- 覆盖工作区仍可恢复时菜单没有孤儿入口、缺失或已移除时才出现且仍经 Host 复核。
+
 ## [0.8.3] - 2026-11-16
 
 ### Changed
@@ -225,6 +250,7 @@
 
 - 回收站工具栏的「永久删除全部」与二次确认；`missing` 记录只移出索引，不删除会话文件。
 
+[0.8.4]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.0...v0.8.1

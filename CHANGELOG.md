@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-11-16
+
+### Changed
+
+- 附件回收审计日志达到 5 MB 时轮转为 `reclaim-log.jsonl.1`，只保留一份旧日志；正常运行最多占用约 10 MB。
+- 回收预览和执行请求的客户端超时放宽到 120 秒，其他回收站写请求仍为 30 秒。
+
+### Tests
+
+- 覆盖审计日志按阈值轮转、旧日志保留，以及 reclaim 预览/执行使用 120 秒超时。
+
 ## [0.8.2] - 2026-11-15
 
 ### Changed
@@ -214,6 +225,7 @@
 
 - 回收站工具栏的「永久删除全部」与二次确认；`missing` 记录只移出索引，不删除会话文件。
 
+[0.8.3]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.7.0...v0.8.0

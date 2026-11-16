@@ -297,6 +297,12 @@ test('the reclaim dialog previews, requires the phrase, and deletes', async () =
       },
     },
   })
+  const originalSetTimeout = globalThis.setTimeout
+  const delays = []
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    if (typeof delay === 'number') delays.push(delay)
+    return originalSetTimeout(callback, delay, ...args)
+  }
   try {
     const { container, document, window, calls, toasts } = harness
     const open = buttonByText(container, '清理无引用附件…')
@@ -337,7 +343,9 @@ test('the reclaim dialog previews, requires the phrase, and deletes', async () =
       confirmation: 'delete-unreferenced-attachments',
     })
     assert.ok(toasts.at(-1).text.includes('已删除 1 个无引用附件，释放 1 KB'))
+    assert.ok(delays.includes(120_000))
   } finally {
+    globalThis.setTimeout = originalSetTimeout
     await harness.dispose()
   }
 })

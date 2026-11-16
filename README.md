@@ -165,7 +165,8 @@ npm 安装的插件在「插件」页打开「会话回收站」的详情，展�
   .lock                     # 跨进程锁
   reclaim/
     plan.json               # 附件回收计划（15 分钟过期）
-    reclaim-log.jsonl       # 附件回收审计日志
+    reclaim-log.jsonl       # 附件回收审计日志（5 MB 轮转）
+    reclaim-log.jsonl.1     # 上一份审计日志
   objects/
     <trashId>/
       meta.json             # 对象元数据
@@ -205,7 +206,7 @@ npm 安装的插件在「插件」页打开「会话回收站」的详情，展�
 | `POST` | `/cleanup` | 无请求体，手动执行一次清理 |
 | `POST` | `/rebuild` | 无请求体，仅在索引保护模式下重建 |
 
-`/reclaim/preview` 只生成计划；`POST /reclaim` 才执行删除，且必须带固定确认短语。计划文件位于 `<DSH_HOME>/.session-trash/reclaim/plan.json`，15 分钟过期；每次执行写入 `reclaim-log.jsonl`。
+`/reclaim/preview` 只生成计划；`POST /reclaim` 才执行删除，且必须带固定确认短语。计划文件位于 `<DSH_HOME>/.session-trash/reclaim/plan.json`，15 分钟过期；每次执行写入 `reclaim-log.jsonl`，文件达到 5 MB 时轮转为 `.1`。reclaim 的预览和执行请求使用 120 秒超时，其他写请求保持 30 秒。
 
 请求需要通过 `ctx.connection.requestRejection()` 和 `ctx.connection.admit()`，`POST` 还要带 `X-DSH-Session-Trash: 1`。请求体使用 `Content-Type: application/json`，上限 64 KiB。响应带 `Cache-Control: no-store`，不返回回收站根目录的绝对路径。
 

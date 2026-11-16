@@ -9,8 +9,10 @@ window.__ModuleLoader__.load({
     const MENU_ID = 'session-trash.move'
     const SECTION_ID = 'session-trash'
     const PREFLIGHT_TIMEOUT_MS = 800
-    /** Hard budget for one trash write request. */
+    /** Hard budget for one ordinary trash write request. */
     const MUTATION_TIMEOUT_MS = 30_000
+    /** Reclaim scans and batched deletion can take much longer. */
+    const RECLAIM_TIMEOUT_MS = 120_000
     /** Hard budget for one `/state` read. */
     const STATE_TIMEOUT_MS = 15_000
     const DAY_MS = 86_400_000
@@ -1414,7 +1416,7 @@ window.__ModuleLoader__.load({
      * @param {{
      *   t: (key: string) => string,
      *   onClose: () => void,
-     *   sendMutation: (pathname: string, body?: object) => Promise<any>,
+     *   sendMutation: (pathname: string, body?: object, timeoutMs?: number) => Promise<any>,
      *   onDone: (payload: any) => void,
      *   fallbackRef: { current: any },
      * }} props dialog content and callbacks.
@@ -1441,7 +1443,7 @@ window.__ModuleLoader__.load({
         const seq = ++sequence.current
         setConfirmation('')
         setState({ phase: 'loading' })
-        const outcome = await sendRef.current('reclaim/preview')
+        const outcome = await sendRef.current('reclaim/preview', undefined, RECLAIM_TIMEOUT_MS)
         if (!alive.current || seq !== sequence.current) return
         if (outcome.kind !== 'response') {
           setState({
@@ -1629,10 +1631,14 @@ window.__ModuleLoader__.load({
             onClick: async () => {
               if (!canConfirm) return
               setState({ phase: 'deleting' })
-              const outcome = await sendRef.current('reclaim', {
-                planId: state.plan.id,
-                confirmation: 'delete-unreferenced-attachments',
-              })
+              const outcome = await sendRef.current(
+                'reclaim',
+                {
+                  planId: state.plan.id,
+                  confirmation: 'delete-unreferenced-attachments',
+                },
+                RECLAIM_TIMEOUT_MS,
+              )
               if (!alive.current) return
               if (outcome.kind !== 'response') {
                 setState({
@@ -1799,15 +1805,16 @@ window.__ModuleLoader__.load({
          * and by the unmount cleanup, so a stuck request can never wedge the
          * page or outlive the settings section.
          *
+         * @param {number} [timeoutMs] request budget in milliseconds.
          * @returns {{ signal: AbortSignal, timedOut: () => boolean, aborted: () => boolean, cancel: () => void, close: () => void }} the scope.
          */
-        function openWriteScope() {
+        function openWriteScope(timeoutMs = MUTATION_TIMEOUT_MS) {
           const controller = new AbortController()
           let timedOut = false
           const timer = setTimeout(() => {
             timedOut = true
             controller.abort()
-          }, MUTATION_TIMEOUT_MS)
+          }, timeoutMs)
           const scope = {
             signal: controller.signal,
             timedOut: () => timedOut,
@@ -1828,6 +1835,7 @@ window.__ModuleLoader__.load({
          *
          * @param {string} pathname endpoint below the API prefix.
          * @param {object} [body] JSON request body.
+         * @param {number} [timeoutMs] request budget in milliseconds.
          * @returns {Promise<
          *   | { kind: 'response', status: number, ok: boolean, payload: any }
          *   | { kind: 'timeout' }
@@ -1835,8 +1843,8 @@ window.__ModuleLoader__.load({
          *   | { kind: 'network' }
          * >} the outcome.
          */
-        async function sendMutationOnce(pathname, body) {
-          const scope = openWriteScope()
+        async function sendMutationOnce(pathname, body, timeoutMs = MUTATION_TIMEOUT_MS) {
+          const scope = openWriteScope(timeoutMs)
           try {
             const { status, ok, payload } = await requestJson(pathname, { method: 'POST', body, signal: scope.signal })
             return { kind: 'response', status, ok, payload }
@@ -1856,10 +1864,11 @@ window.__ModuleLoader__.load({
          *
          * @param {string} pathname endpoint below the API prefix.
          * @param {object} [body] JSON request body.
+         * @param {number} [timeoutMs] request budget in milliseconds.
          * @returns {Promise<any>} the outcome, see {@link sendMutationOnce}.
          */
-        async function sendMutation(pathname, body) {
-          let outcome = await sendMutationOnce(pathname, body)
+        async function sendMutation(pathname, body, timeoutMs = MUTATION_TIMEOUT_MS) {
+          let outcome = await sendMutationOnce(pathname, body, timeoutMs)
           if (outcome.kind === 'response' && outcome.ok === false) {
             const code =
               outcome.payload !== null && outcome.payload !== undefined && outcome.payload.error !== undefined
@@ -1867,7 +1876,7 @@ window.__ModuleLoader__.load({
                 : undefined
             if (code === 'LOCKED') {
               await new Promise((resolve) => setTimeout(resolve, 350 + Math.floor(Math.random() * 350)))
-              outcome = await sendMutationOnce(pathname, body)
+              outcome = await sendMutationOnce(pathname, body, timeoutMs)
             }
           }
           return outcome

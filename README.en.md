@@ -165,7 +165,8 @@ Defaults apply when `config` is omitted. Invalid values reject activation instea
   .lock                     # cross-process lock
   reclaim/
     plan.json               # attachment reclaim plan (15-minute TTL)
-    reclaim-log.jsonl       # attachment reclaim audit log
+    reclaim-log.jsonl       # attachment reclaim audit log (5 MB rotation)
+    reclaim-log.jsonl.1     # previous audit log
   objects/
     <trashId>/
       meta.json             # object metadata
@@ -207,7 +208,7 @@ All routes live under `/plugins/dsh-session-trash/api/` and are registered as ex
 | `POST` | `/cleanup` | No body; runs one cleanup sweep |
 | `POST` | `/rebuild` | No body; rebuilds the index only in protection mode |
 
-`/reclaim/preview` only builds a plan; `POST /reclaim` executes it and requires the exact confirmation phrase. The plan lives at `<DSH_HOME>/.session-trash/reclaim/plan.json` and expires after 15 minutes; every execution appends to `reclaim-log.jsonl`.
+`/reclaim/preview` only builds a plan; `POST /reclaim` executes it and requires the exact confirmation phrase. The plan lives at `<DSH_HOME>/.session-trash/reclaim/plan.json` and expires after 15 minutes; every execution appends to `reclaim-log.jsonl`, which rotates to `.1` at 5 MB. Reclaim preview and execution requests use a 120-second timeout; other writes stay at 30 seconds.
 
 Requests must pass `ctx.connection.requestRejection()` and `ctx.connection.admit()`. `POST` requests also carry `X-DSH-Session-Trash: 1`. JSON bodies use `Content-Type: application/json` and are limited to 64 KiB. Responses use `Cache-Control: no-store` and never expose the absolute trash root.
 

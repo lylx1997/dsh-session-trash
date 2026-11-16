@@ -25,6 +25,7 @@ async function writeBytes(file, bytes) {
  *   protected?: boolean,
  *   recover?: () => Promise<any>,
  *   batchSize?: number,
+ *   auditMaxBytes?: number,
  * }} [options] harness overrides.
  * @returns {Promise<object>} the service and fixtures.
  */
@@ -86,6 +87,7 @@ async function createHarness(options = {}) {
     logger,
     clock: options.clock ?? (() => Date.now()),
     batchSize: options.batchSize,
+    auditMaxBytes: options.auditMaxBytes,
   })
   return {
     home,
@@ -392,6 +394,24 @@ test('a zero-byte unreferenced object is still a valid candidate', async () => {
   })
   assert.deepEqual(result.deleted, { hashes: 1, bytes: 0 })
   await assert.rejects(fs.stat(path.join(harness.home, 'attachments', 'v1', 'objects', hash.slice(0, 2), hash)))
+  await fs.rm(harness.home, { recursive: true, force: true })
+})
+
+test('the audit log rotates at the configured size', async () => {
+  const orphan = '2'.repeat(64)
+  const old = new Date(Date.now() - 25 * 86_400_000)
+  const harness = await createHarness({ auditMaxBytes: 1 })
+  await writeObject(harness.home, orphan, 10, old)
+
+  await harness.service.preview()
+  await harness.service.preview()
+
+  const rotated = await fs.readFile(`${harness.auditPath}.1`, 'utf8')
+  const current = await fs.readFile(harness.auditPath, 'utf8')
+  assert.equal(rotated.trim().split('\n').length, 1)
+  assert.equal(current.trim().split('\n').length, 1)
+  assert.ok(rotated.includes('"action":"plan"'))
+  assert.ok(current.includes('"action":"plan"'))
   await fs.rm(harness.home, { recursive: true, force: true })
 })
 

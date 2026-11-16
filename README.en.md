@@ -23,7 +23,7 @@ This plugin adds a trash to DSH. Right-click a cold session to move it out of th
 Moving and restoring only touch the session directory; attachments and images stay where they are. Permanent deletion also removes the session's projection-cache record and workspace accounting, while attachments and images are kept. The index is committed atomically, so a process that dies mid-operation finishes or rolls back on the next startup.
 
 <p align="center">
-  <img src="assets/trash-page.png" width="860" alt="The Trash page in DSH Settings, showing the session list, filters, search, and cleanup actions">
+  <img src="assets/trash-page.png" width="860" alt="The Trash page in DSH Settings, showing local session data, recoverability filters, search, and cleanup actions">
 </p>
 
 <p align="center"><sub>Settings → Trash. Search, filter, restore in bulk, or delete permanently.</sub></p>

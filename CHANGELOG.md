@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-11-16
+
+### Docs
+
+- 更新 README 的回收站截图：展示按可恢复性划分的筛选（可恢复回工作区 / 需孤儿恢复）、「工作区已移除」徽章，以及本机会话数据的存储占用行。
+
 ## [0.8.4] - 2026-11-16
 
 ### Added
@@ -250,6 +256,7 @@
 
 - 回收站工具栏的「永久删除全部」与二次确认；`missing` 记录只移出索引，不删除会话文件。
 
+[0.8.5]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.4...v0.8.5
 [0.8.4]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/wangxiaocuo/dsh-session-trash/compare/v0.8.1...v0.8.2
